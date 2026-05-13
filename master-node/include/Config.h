@@ -45,7 +45,7 @@
 #define SERVO_CLOSE_ANGLE   0
 #define SERVO_OPEN_ANGLE    90
 
-// 3. SYSTEM STATES (ENUMS)
+// 3. SYSTEM STATES
 
 enum SystemMode {
     MODE_MANUAL,
@@ -58,5 +58,28 @@ enum AlertState {
     STATE_FIRE_ONLY,
     STATE_EMERGENCY    // Gas and Fire
 };
+
+// 4. LCD & UI CONFIGURATIONS
+
+#define LCD_COLS        20
+#define LCD_ROWS        4
+#define LCD_ADDR        0x27
+
+// 5. EEPROM MEMORY MAP
+
+#define EEPROM_SIZE     512
+#define ADDR_SSID       0     // 32 bytes (0-31)
+#define ADDR_PASS       32    // 64 bytes (32-95)
+#define ADDR_BLYNK      96    // 32 bytes (96-127)
+#define ADDR_TELE_BOT   128   // 64 bytes (128-191) - Bot Token (≈ 46 chars)
+#define ADDR_TELE_CHAT  192   // 32 bytes (192-223) - Chat ID (≈ 10-15 chars)
+#define ADDR_MODE       224   // 1 byte   (Auto/Manual)
+#define ADDR_THRESH_H   225   // 1 byte   (Threshold High)
+#define ADDR_THRESH_L   226   // 1 byte   (Threshold Low)
+
+// 6. SYSTEM INFO
+
+#define GROUP_NAME      "ESPecially-Talented"
+#define CLASS_ID        "D23CQCI01-N"
 
 #endif
