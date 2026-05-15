@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include "Config.h"
 
+void sendWiFiConfig(String ssid, String pass);
 class UartCommManager {
 public:
     UartCommManager();

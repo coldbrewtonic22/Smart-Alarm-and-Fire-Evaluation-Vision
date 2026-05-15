@@ -311,6 +311,9 @@ void setup() {
 
         if (WiFi.status() == WL_CONNECTED) {
             Serial.println("[INFO] WiFi Connected!");
+
+            // Send WiFi information to Slave
+            uartManager.sendWiFiConfig(wifiSsid, wifiPass);
             
             // Configure Blynk using the token retrieved from EEPROM
             Blynk.config(blynkToken.c_str());
