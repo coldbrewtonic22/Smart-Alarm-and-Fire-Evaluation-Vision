@@ -39,7 +39,7 @@
 
 #define DEFAULT_GAS_THRESH  2200
 #define GAS_HYSTERESIS      100
-#define DEFAULT_PIN_CODE    "001"
+#define DEFAULT_PIN_CODE    "0712"
 
 // Servo Angles
 #define SERVO_CLOSE_ANGLE   0
@@ -81,5 +81,16 @@ enum AlertState {
 
 #define GROUP_NAME      "ESPecially-Talented"
 #define CLASS_ID        "D23CQCI01-N"
+
+// 7. BLYNK CLOUD CONFIGURATION
+
+#define BLYNK_TEMPLATE_ID       "TMPL6PxCh11q_"
+#define BLYNK_TEMPLATE_NAME     "Smart Alarm and Fire Evaluation Vision"
+
+#define GAS_PIN           V0
+#define RELAY_PIN         V1
+#define SERVO_PIN         V2
+#define THRESHOLD_PIN     V3
+#define MODE_PIN          V4
 
 #endif
