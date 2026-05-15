@@ -338,9 +338,20 @@ void setup() {
     }
 
     if (isApMode) {
-        uiManager.showMessage(0, 3, "AP: ESP32_SmartHome ", false);
+        // Start WebServer and Captive Portal
         wifiConfigManager.beginAP();
+        
+        uiManager.showMessage(0, 0, "   SETUP REQUIRED   ", true);
+        uiManager.showMessage(0, 1, "WiFi:ESP32_SmartHome", false);
+        uiManager.showMessage(0, 2, "  IP: 192.168.4.1   ", false);
+        uiManager.showMessage(0, 3, "Connect to config...", false);
+        
+        // Wait 15 seconds for the user to get their phone and connect
+        delay(15000); 
     }
+
+    // After 15 seconds (or once WiFi is available), the system starts rendering the main interface and runs FreeRTOS
+    uiManager.updateMainScreen(0, false, 0, false, blynkConnected, currentMode);
 
     // Task scheduling
     xTaskCreatePinnedToCore(Task_Network, "TaskNetwork", 8192, NULL, 1, &TaskNetwork_Handle, 0); // Core 0
