@@ -11,10 +11,10 @@
 
 // --- Actuators ---
 #define PIN_RELAY_FAN   18
-#define PIN_RELAY_PUMP  5
+#define PIN_RELAY_PUMP  19
 #define PIN_SERVO       33
-#define PIN_BUZZER      23
-#define PIN_LED         19
+#define PIN_BUZZER      25
+#define PIN_LED         26
 
 // --- Displays & Communication ---
 #define PIN_I2C_SDA     21
@@ -24,13 +24,13 @@
 
 // --- Keypad 4x4 ---
 #define KP_ROW_1        13
-#define KP_ROW_2        12
-#define KP_ROW_3        14
-#define KP_ROW_4        27
-#define KP_COL_1        26
-#define KP_COL_2        25
-#define KP_COL_3        32
-#define KP_COL_4        4
+#define KP_ROW_2        14
+#define KP_ROW_3        27
+#define KP_ROW_4        32
+#define KP_COL_1        2
+#define KP_COL_2        4
+#define KP_COL_3        15
+#define KP_COL_4        5
 
 // 2. SYSTEM CONSTANTS & PARAMETERS
 
