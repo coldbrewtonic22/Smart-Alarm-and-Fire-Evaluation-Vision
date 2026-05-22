@@ -29,9 +29,9 @@ bool CameraManager::begin() {
     config.pixel_format = PIXFORMAT_JPEG;
     
     // Configure image quality
-    config.frame_size = FRAMESIZE_VGA; 
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
+    config.frame_size = FRAMESIZE_VGA;  // Giữ nguyên VGA (640x480) để tốc độ truyền Telegram nhanh
+    config.jpeg_quality = 15;           // Tăng lên 15 (Số càng cao chất lượng càng thấp nhưng dung lượng file nhẹ, tránh tràn RAM)
+    config.fb_count = 1;                // Chỉ dùng 1 bộ đệm
 
     esp_err_t err = esp_camera_init(&config);
 
