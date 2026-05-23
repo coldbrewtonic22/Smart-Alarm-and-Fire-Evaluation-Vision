@@ -51,8 +51,8 @@ String inputBuffer = "";
 
 // FreeRTOS Task Handles
 
-TaskHandle_t TaskSafety_Handle = NULL;
-TaskHandle_t TaskUI_Handle = NULL;
+TaskHandle_t TaskSafety_Handle  = NULL;
+TaskHandle_t TaskUI_Handle      = NULL;
 TaskHandle_t TaskNetwork_Handle = NULL;
 
 // Define helper functions
@@ -254,7 +254,7 @@ void Task_Network(void* pvParameters) {
     
     while (true) {
         if (isApMode) {
-            wifiConfigManager.loop();   // Run local WebServer for config
+            wifiConfigManager.loop();
         } 
         else {
             // Run Blynk (Failsafe: If the network connection is lost and this task hangs, Core 1 tasks will continue running normally)
@@ -299,42 +299,48 @@ void setup() {
     loadEEPROMData();
 
     // Connect WiFi & Blynk
-    // Check if the SSID exists and the token is in the correct 32-character format
     if (wifiSsid.length() > 0 && blynkToken.length() == 32) {
-        uiManager.showMessage(0, 3, " Connecting WiFi... ", false);
+        uiManager.showMessage(0, 0, "   SYSTEM BOOTING   ", true);
+        uiManager.showMessage(0, 1, "Connecting to WiFi..", false);
         WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
 
         int retry = 0;
+        String dotConnect = "";
+        
         while (WiFi.status() != WL_CONNECTED && retry < 20) {
             delay(500);
+            dotConnect += ".";
+            if(dotConnect.length() > 20) dotConnect = "";
+            uiManager.showMessage(0, 2, dotConnect, false);
             retry++;
         }
 
         if (WiFi.status() == WL_CONNECTED) {
             Serial.println("[INFO] WiFi Connected!");
-
-            // Send WiFi information to Slave
+            uiManager.showMessage(0, 0, "   WiFi Connected!  ", true);
+            uiManager.showMessage(0, 1, wifiSsid, false);
+            
             uartManager.sendWiFiConfig(wifiSsid, wifiPass);
             
-            // Configure Blynk using the token retrieved from EEPROM
             Blynk.config(blynkToken.c_str());
-            blynkConnected = Blynk.connect();   // Attempt to connect for up to 30 seconds
-            
-            if (blynkConnected) {
-                Serial.println("[INFO] Blynk Connected!");
-            } 
-            else {
-                Serial.println("[WARN] Blynk Connection Timeout.");
-            }
+            blynkConnected = Blynk.connect();
+            delay(2000); 
         } 
         else {
             Serial.println("[WARN] WiFi Connection Failed.");
+            uiManager.showMessage(0, 0, "  Connect Failed!   ", true);
+            uiManager.showMessage(0, 1, "Starting AP Mode... ", false);
+            delay(2000);
             isApMode = true; 
         }
     } 
     else {
-        // If the EEPROM is empty or the information is invalid, enable AP mode immediately
         Serial.println("[INFO] No Config found. Entering AP Mode.");
+        uiManager.showMessage(0, 0, "   SETUP REQUIRED   ", true);
+        uiManager.showMessage(0, 1, "No WiFi Config Found", false);
+
+        delay(2000);
+
         isApMode = true;
     }
 
@@ -348,7 +354,7 @@ void setup() {
         uiManager.showMessage(0, 3, "Connect to config...", false);
         
         unsigned long waitStartTime = millis();
-        while (millis() - waitStartTime < 60000) {
+        while (millis() - waitStartTime < 15000) {
             wifiConfigManager.loop();   // Liên tục xử lý các yêu cầu truy cập Web
             delay(10);
         } 
