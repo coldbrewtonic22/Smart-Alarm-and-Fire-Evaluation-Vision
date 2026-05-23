@@ -1,11 +1,12 @@
 #define BLYNK_PRINT Serial
 
+#include "Config.h"
+
 #include <WiFi.h>
 #include <EEPROM.h>
 #include <Arduino.h>
 #include <BlynkSimpleEsp32.h>
 
-#include "Config.h"
 #include "UIManager.h"
 #include "SensorManager.h"
 #include "ActuatorManager.h"
@@ -88,7 +89,7 @@ BLYNK_WRITE(THRESHOLD_PIN) {
 }
 
 // V4
-BLYNK_WRITE(AUTOMANUAL_PIN) { 
+BLYNK_WRITE(MODE_PIN) { 
     currentMode = param.asInt() ? MODE_AUTO : MODE_MANUAL;
 
     EEPROM.write(ADDR_MODE, currentMode);
@@ -177,7 +178,7 @@ void Task_UI_Keypad(void* pvParameters) {
                 if (key == 'A') {
                     currentMode = (currentMode == MODE_AUTO) ? MODE_MANUAL : MODE_AUTO;
                     EEPROM.write(ADDR_MODE, currentMode); EEPROM.commit();
-                    if(blynkConnected) Blynk.virtualWrite(AUTOMANUAL_PIN, currentMode);
+                    if(blynkConnected) Blynk.virtualWrite(MODE_PIN, currentMode);
                 }
                 else if (key == 'B') {
                     currentUIState = UI_INPUT_THRESH;
@@ -346,17 +347,20 @@ void setup() {
         uiManager.showMessage(0, 2, "  IP: 192.168.4.1   ", false);
         uiManager.showMessage(0, 3, "Connect to config...", false);
         
-        // Wait 15 seconds for the user to get their phone and connect
-        delay(15000); 
+        unsigned long waitStartTime = millis();
+        while (millis() - waitStartTime < 15000) {
+            wifiConfigManager.loop();   // Liên tục xử lý các yêu cầu truy cập Web
+            delay(10);
+        } 
     }
 
     // After 15 seconds (or once WiFi is available), the system starts rendering the main interface and runs FreeRTOS
     uiManager.updateMainScreen(0, false, 0, false, blynkConnected, currentMode);
 
     // Task scheduling
-    xTaskCreatePinnedToCore(Task_Network, "TaskNetwork", 8192, NULL, 1, &TaskNetwork_Handle, 0); // Core 0
-    xTaskCreatePinnedToCore(Task_SafetyMonitor, "TaskSafety", 4096, NULL, 5, &TaskSafety_Handle, 1); // Core 1
-    xTaskCreatePinnedToCore(Task_UI_Keypad, "TaskUI", 4096, NULL, 3, &TaskUI_Handle, 1); // Core 1
+    xTaskCreatePinnedToCore(Task_Network,       "TaskNetwork", 8192, NULL, 1, &TaskNetwork_Handle, 0);  // Core 0
+    xTaskCreatePinnedToCore(Task_SafetyMonitor, "TaskSafety",  4096, NULL, 5, &TaskSafety_Handle,  1);  // Core 1
+    xTaskCreatePinnedToCore(Task_UI_Keypad,     "TaskUI",      4096, NULL, 3, &TaskUI_Handle,      1);  // Core 1
 }
 
 void loop() {
@@ -423,7 +427,7 @@ void checkSwitchToAuto() {
                 currentMode = MODE_AUTO;
                 EEPROM.write(ADDR_MODE, currentMode); EEPROM.commit();
 
-                if (blynkConnected) Blynk.virtualWrite(AUTOMANUAL_PIN, currentMode);
+                if (blynkConnected) Blynk.virtualWrite(MODE_PIN, currentMode);
 
                 deviceOffStartTime = 0;
             }
