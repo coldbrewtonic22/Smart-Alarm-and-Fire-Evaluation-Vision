@@ -1,0 +1,16 @@
+{
+  "folders": [
+	{
+		"path": ".."
+	},
+	{
+		"name": "master-node",
+		"path": "../master-node"
+	},
+	{
+		"name": "slave-node",
+		"path": "."
+	}
+],
+  "settings": {}
+}
