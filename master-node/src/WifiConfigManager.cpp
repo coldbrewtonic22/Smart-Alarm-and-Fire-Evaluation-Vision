@@ -9,7 +9,10 @@ WifiConfigManager::WifiConfigManager() : server(80) {}
 void WifiConfigManager::beginAP() {
     EEPROM.begin(EEPROM_SIZE);
     
-    WiFi.mode(WIFI_AP_STA);
+    WiFi.disconnect(true); // Ngắt hoàn toàn chức năng Thu (STA) đang chạy ngầm
+    delay(100);            // Chờ 0.1s để Radio ổn định
+    WiFi.mode(WIFI_AP);    // Ép chip CHỈ hoạt động ở chế độ Phát (Access Point)
+
     WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
     WiFi.softAP("ESP32_SmartHome", ""); // SSID, no Password
 

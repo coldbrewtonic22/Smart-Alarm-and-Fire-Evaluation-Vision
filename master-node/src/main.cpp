@@ -348,7 +348,7 @@ void setup() {
         uiManager.showMessage(0, 3, "Connect to config...", false);
         
         unsigned long waitStartTime = millis();
-        while (millis() - waitStartTime < 15000) {
+        while (millis() - waitStartTime < 60000) {
             wifiConfigManager.loop();   // Liên tục xử lý các yêu cầu truy cập Web
             delay(10);
         } 
