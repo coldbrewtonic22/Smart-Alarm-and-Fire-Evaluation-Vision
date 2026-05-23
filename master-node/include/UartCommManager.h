@@ -16,6 +16,8 @@ public:
     void sendStatus(const char* cmd, const char* type, int gasValue);
     
     void sendSnapshotRequest();
+
+    void sendWiFiConfig(String ssid, String pass);
 };
 
 #endif 
