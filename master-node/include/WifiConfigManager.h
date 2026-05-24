@@ -15,9 +15,7 @@ private:
     String webSsid, webPass, webBlynk, webTeleBot, webTeleChat;
 
     void handleRoot();
-    void handleSaveWiFi();
-    void handleSaveBlynk();
-    void handleSaveTelegram();
+    void handleSaveConfig();
     void handleNotFound();
     
     void saveStringToEEPROM(int addr, String data, int maxLength);
