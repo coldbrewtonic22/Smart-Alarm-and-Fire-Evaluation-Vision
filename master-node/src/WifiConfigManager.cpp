@@ -18,7 +18,7 @@ void WifiConfigManager::beginAP() {
     dnsServer.start(DNS_PORT, "*", apIP);
 
     server.on("/", HTTP_GET, std::bind(&WifiConfigManager::handleRoot, this));
-    server.on("/save-config", HTTP_GET, std::bind(&WifiConfigManager::handleSaveConfig, this));
+    server.on("/save-config", HTTP_POST, std::bind(&WifiConfigManager::handleSaveConfig, this));
     server.onNotFound(std::bind(&WifiConfigManager::handleNotFound, this));
 
     server.begin();
@@ -61,7 +61,7 @@ void WifiConfigManager::handleRoot() {
     <div class="container">
         <h2>⚙️ System Setup</h2>
         
-        <form action="/save-config" method="GET">
+        <form action="/save-config" method="POST">
             <div class="tab">
                 <button type="button" class="tablinks" onclick="openTab(event, 'WiFi')" id="defaultOpen">📡 WiFi</button>
                 <button type="button" class="tablinks" onclick="openTab(event, 'Blynk')">🟢 Blynk</button>
@@ -81,7 +81,7 @@ void WifiConfigManager::handleRoot() {
 
             <div id="Blynk" class="tabcontent">
                 <div class="form-group">
-                    <label>Blynk Auth Token</label>
+                    <label>Blynk Auth Token (Bắt buộc 32 ký tự)</label>
                     <input type="text" name="token" placeholder="Dán 32 ký tự Token vào đây..." maxlength="32">
                 </div>
             </div>
@@ -121,50 +121,62 @@ void WifiConfigManager::handleRoot() {
 }
 
 void WifiConfigManager::handleSaveConfig() {
-    bool hasData = false;
+    String ssid = server.arg("ssid");
+    String pass = server.arg("pass");
+    String token = server.arg("token");
+    String bot_token = server.arg("bot_token");
+    String chat_id = server.arg("chat_id");
 
-    // Lưu WiFi
-    if (server.hasArg("ssid") && server.arg("ssid") != "") {
-        saveStringToEEPROM(ADDR_SSID, server.arg("ssid"), 32);
-        saveStringToEEPROM(ADDR_PASS, server.arg("pass"), 64);
-        hasData = true;
+    if (ssid.length() == 0) {
+        sendErrorPage("Tên WiFi (SSID) không được để trống!");
+        return;
     }
-    
-    // Lưu Blynk
-    if (server.hasArg("token") && server.arg("token") != "") {
-        saveStringToEEPROM(ADDR_BLYNK, server.arg("token"), 32);
-        hasData = true;
+    if (token.length() > 0 && token.length() != 32) {
+        sendErrorPage("Blynk Token phải có đúng 32 ký tự! (Hiện tại: " + String(token.length()) + ")");
+        return;
     }
-
-    // Lưu Telegram
-    if (server.hasArg("bot_token") && server.arg("bot_token") != "") {
-        saveStringToEEPROM(ADDR_TELE_BOT, server.arg("bot_token"), 64);
-        if (server.hasArg("chat_id")) {
-            saveStringToEEPROM(ADDR_TELE_CHAT, server.arg("chat_id"), 32);
-        }
-        hasData = true;
+    if (token.length() == 0) {
+        sendErrorPage("Blynk Token không được để trống (Bắt buộc để hệ thống hoạt động)!");
+        return;
     }
 
-    if (hasData) {
-        String successHtml = R"rawliteral(
-            <!DOCTYPE html>
-            <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>body{text-align:center;font-family:sans-serif;background:#e8f5e9;padding-top:50px;}
-            .box{background:#fff;padding:30px;border-radius:15px;box-shadow:0 10px 30px rgba(0,0,0,0.1);display:inline-block;}</style>
-            </head><body><div class="box">
-            <h2 style="color:#4caf50;">✅ Đã lưu cấu hình thành công!</h2>
-            <p style="color:#555;">Hệ thống đang khởi động lại để kết nối...<br>Bạn có thể đóng trang Web này.</p>
-            </div></body></html>
-        )rawliteral";
-        
-        server.send(200, "text/html", successHtml);
-        
-        delay(1500); 
-        ESP.restart();
-    }
-    else {
-        server.send(400, "text/html", "<h2>Vui lòng nhập ít nhất 1 thông tin (WiFi hoặc Blynk)!</h2><br><a href='/'>Quay lai</a>");
-    }
+    saveStringToEEPROM(ADDR_SSID, ssid, 32);
+    saveStringToEEPROM(ADDR_PASS, pass, 64);
+    saveStringToEEPROM(ADDR_BLYNK, token, 32);
+    saveStringToEEPROM(ADDR_TELE_BOT, bot_token, 64);
+    saveStringToEEPROM(ADDR_TELE_CHAT, chat_id, 32);
+
+    sendSuccessPage();
+
+    delay(2000); 
+    ESP.restart();
+}
+
+void WifiConfigManager::sendSuccessPage() {
+    String html = R"rawliteral(
+        <!DOCTYPE html>
+        <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>body{text-align:center;font-family:'Segoe UI',sans-serif;background:#e8f5e9;padding-top:50px;margin:0;}
+        .box{background:#fff;padding:40px;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,0.1);display:inline-block;max-width:90%;}</style>
+        </head><body><div class="box">
+        <h1 style="color:#4caf50;font-size:60px;margin:0;">✅</h1>
+        <h2 style="color:#333;margin-top:20px;">Lưu Cấu Hình Thành Công!</h2>
+        <p style="color:#666;font-size:16px;">Hệ thống đang khởi động lại để áp dụng cài đặt mới.<br>Bạn có thể đóng trang Web này.</p>
+        </div></body></html>
+    )rawliteral";
+    server.send(200, "text/html", html);
+}
+
+void WifiConfigManager::sendErrorPage(String message) {
+    String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+    html += "<style>body{text-align:center;font-family:'Segoe UI',sans-serif;background:#ffebee;padding-top:50px;margin:0;}";
+    html += ".box{background:#fff;padding:40px;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,0.1);display:inline-block;max-width:90%;}";
+    html += ".btn{background:#f44336;color:#fff;padding:12px 25px;border:none;border-radius:8px;font-size:16px;cursor:pointer;margin-top:20px;text-decoration:none;display:inline-block;}</style>";
+    html += "</head><body><div class='box'><h1 style='color:#f44336;font-size:60px;margin:0;'>❌</h1>";
+    html += "<h2 style='color:#333;margin-top:20px;'>Cấu Hình Thất Bại!</h2>";
+    html += "<p style='color:#666;font-size:16px;'>" + message + "</p>";
+    html += "<a href='/' class='btn'>Quay Lại Cấu Hình</a></div></body></html>";
+    server.send(400, "text/html", html);
 }
 
 void WifiConfigManager::handleNotFound() {
@@ -187,8 +199,8 @@ void WifiConfigManager::saveStringToEEPROM(int addr, String data, int maxLength)
 
 String WifiConfigManager::readStringFromEEPROM(int addr, int maxLength) {
     EEPROM.begin(EEPROM_SIZE);
-    String result = "";
 
+    String result = "";
     for (int i = 0; i < maxLength; ++i) {
         char c = char(EEPROM.read(addr + i));
 
@@ -196,7 +208,7 @@ String WifiConfigManager::readStringFromEEPROM(int addr, int maxLength) {
 
         result += c;
     }
-    
+
     return result;
 }
 

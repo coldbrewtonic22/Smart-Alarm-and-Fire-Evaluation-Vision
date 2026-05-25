@@ -11,12 +11,12 @@ class WifiConfigManager {
 private:
     WebServer server;
     DNSServer dnsServer;
-    
-    String webSsid, webPass, webBlynk, webTeleBot, webTeleChat;
 
     void handleRoot();
-    void handleSaveConfig();
     void handleNotFound();
+    void sendSuccessPage();
+    void handleSaveConfig();
+    void sendErrorPage(String errorMessage);
     
     void saveStringToEEPROM(int addr, String data, int maxLength);
     String readStringFromEEPROM(int addr, int maxLength);

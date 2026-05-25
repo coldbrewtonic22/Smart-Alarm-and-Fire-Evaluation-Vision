@@ -58,8 +58,11 @@ TaskHandle_t TaskNetwork_Handle = NULL;
 // Define helper functions
 
 void handleAlerts();
+void initHardware();
 void loadEEPROMData();
+void startFreeRTOS();
 void checkSwitchToAuto();
+void connectNetworkOrAP();
 void saveThreshold(int thresh);
 
 // --- BLYNK CALLBACKS ---
@@ -276,17 +279,34 @@ void Task_Network(void* pvParameters) {
 // --- MAIN SETUP & UTILITY FUNCTIONS ---
 
 void setup() {
+    initHardware();
+    loadEEPROMData();
+    connectNetworkOrAP();
+    
+    uiManager.updateMainScreen(0, false, 0, false, blynkConnected, currentMode);
+    
+    startFreeRTOS();
+}
+
+void loop() {
+    vTaskDelete(NULL);
+}
+
+void startFreeRTOS() {
+    xTaskCreatePinnedToCore(Task_Network,       "TaskNetwork", 8192, NULL, 1, &TaskNetwork_Handle, 0);  // WebServer/Blynk chạy vô thời hạn ở Core 0
+    xTaskCreatePinnedToCore(Task_SafetyMonitor, "TaskSafety",  4096, NULL, 5, &TaskSafety_Handle,  1);  // Bảo vệ cháy nổ chạy ở Core 1
+    xTaskCreatePinnedToCore(Task_UI_Keypad,     "TaskUI",      4096, NULL, 3, &TaskUI_Handle,      1);  // Giao diện người dùng chạy ở Core 1
+}
+
+void initHardware() {
     Serial.begin(SERIAL_DEBUG_BAUD);
     
-    // Print the system banner to the PC
     Serial.println("\n=================================");
-    Serial.println("[SYSTEM] " + String(GROUP_NAME) + " - " + String(CLASS_ID));
     Serial.println("[SYSTEM] Master Node Initialized.");
     Serial.println("=================================");
 
     EEPROM.begin(EEPROM_SIZE);
     
-    // Initialize Managers
     actuatorManager.begin();
     sensorManager.begin();
     uiManager.begin();
@@ -294,19 +314,17 @@ void setup() {
 
     uiManager.showStartupScreen();
     delay(2000);
+}
 
-    // Load EEPROM
-    loadEEPROMData();
-
-    // Connect WiFi & Blynk
+void connectNetworkOrAP() {
     if (wifiSsid.length() > 0 && blynkToken.length() == 32) {
         uiManager.showMessage(0, 0, "   SYSTEM BOOTING   ", true);
-        uiManager.showMessage(0, 1, "Connecting to WiFi..", false);
+        uiManager.showMessage(0, 1, " WiFi Connecting... ", false);
+
         WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
 
         int retry = 0;
         String dotConnect = "";
-        
         while (WiFi.status() != WL_CONNECTED && retry < 20) {
             delay(500);
             dotConnect += ".";
@@ -324,14 +342,16 @@ void setup() {
             
             Blynk.config(blynkToken.c_str());
             blynkConnected = Blynk.connect();
+
             delay(2000); 
+            return;
         } 
         else {
             Serial.println("[WARN] WiFi Connection Failed.");
             uiManager.showMessage(0, 0, "  Connect Failed!   ", true);
             uiManager.showMessage(0, 1, "Starting AP Mode... ", false);
+
             delay(2000);
-            isApMode = true; 
         }
     } 
     else {
@@ -340,37 +360,21 @@ void setup() {
         uiManager.showMessage(0, 1, "No WiFi Config Found", false);
 
         delay(2000);
-
-        isApMode = true;
     }
 
-    if (isApMode) {
-        // Start WebServer and Captive Portal
-        wifiConfigManager.beginAP();
-        
-        uiManager.showMessage(0, 0, "   SETUP REQUIRED   ", true);
-        uiManager.showMessage(0, 1, "WiFi:ESP32_SmartHome", false);
-        uiManager.showMessage(0, 2, "  IP: 192.168.4.1   ", false);
-        uiManager.showMessage(0, 3, "Connect to config...", false);
-        
-        unsigned long waitStartTime = millis();
-        while (millis() - waitStartTime < 15000) {
-            wifiConfigManager.loop();   // Liên tục xử lý các yêu cầu truy cập Web
-            delay(10);
-        } 
-    }
-
-    // After 15 seconds (or once WiFi is available), the system starts rendering the main interface and runs FreeRTOS
-    uiManager.updateMainScreen(0, false, 0, false, blynkConnected, currentMode);
-
-    // Task scheduling
-    xTaskCreatePinnedToCore(Task_Network,       "TaskNetwork", 8192, NULL, 1, &TaskNetwork_Handle, 0);  // Core 0
-    xTaskCreatePinnedToCore(Task_SafetyMonitor, "TaskSafety",  4096, NULL, 5, &TaskSafety_Handle,  1);  // Core 1
-    xTaskCreatePinnedToCore(Task_UI_Keypad,     "TaskUI",      4096, NULL, 3, &TaskUI_Handle,      1);  // Core 1
-}
-
-void loop() {
-    vTaskDelete(NULL);
+    isApMode = true;
+    wifiConfigManager.beginAP();
+    
+    uiManager.showMessage(0, 0, "   SETUP REQUIRED   ", true);
+    uiManager.showMessage(0, 1, "WiFi:ESP32_SmartHome", false);
+    uiManager.showMessage(0, 2, "  IP: 192.168.4.1   ", false);
+    uiManager.showMessage(0, 3, "Connect to config...", false);
+    
+    unsigned long waitStartTime = millis();
+    while (millis() - waitStartTime < 10000) {
+        wifiConfigManager.loop();   
+        delay(10);
+    } 
 }
 
 // Alarm scenario handling function
