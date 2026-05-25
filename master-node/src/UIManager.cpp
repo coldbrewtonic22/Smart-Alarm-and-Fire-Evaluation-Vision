@@ -32,23 +32,23 @@ void UIManager::showStartupScreen() {
 }
 
 void UIManager::updateMainScreen(int gas, bool fire, int relayState, bool doorOpen, bool wifiOk, SystemMode mode) {
-    char buffer[21];
+    char buffer[32];
     
     // ROW 1
-    sprintf(buffer, "GAS: %-4dPPM FIRE: %d", gas, fire ? 1 : 0);
+    snprintf(buffer, sizeof(buffer), "GAS: %-4dPPM FIRE: %d", gas, fire ? 1 : 0);
     lcd.setCursor(0, 0);
     lcd.print(buffer);
 
     // ROW 2
     String doorStr = doorOpen ? "OPEN " : "CLOSE";
-    sprintf(buffer, "RELAY: %d DOOR: %s", relayState, doorStr.c_str());
+    snprintf(buffer, sizeof(buffer), "RELAY: %d DOOR: %s", relayState, doorStr.c_str());
     lcd.setCursor(0, 1);
     lcd.print(buffer);
 
     // ROW 3
     String wifiStr = wifiOk ? "ON " : "OFF";
     String modeStr = (mode == MODE_AUTO) ? "AUTO  " : "MANUAL";
-    sprintf(buffer, "WIFI: %s MODE: %s", wifiStr.c_str(), modeStr.c_str());
+    snprintf(buffer, sizeof(buffer), "WIFI: %s MODE: %s", wifiStr.c_str(), modeStr.c_str());
     lcd.setCursor(0, 2);
     lcd.print(buffer);
 

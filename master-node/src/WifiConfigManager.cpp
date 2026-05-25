@@ -6,8 +6,6 @@ IPAddress apIP(192, 168, 4, 1);
 WifiConfigManager::WifiConfigManager() : server(80) {}
 
 void WifiConfigManager::beginAP() {
-    EEPROM.begin(EEPROM_SIZE);
-    
     WiFi.disconnect(true); 
     delay(100);            
     WiFi.mode(WIFI_AP);    
@@ -198,8 +196,6 @@ void WifiConfigManager::saveStringToEEPROM(int addr, String data, int maxLength)
 }
 
 String WifiConfigManager::readStringFromEEPROM(int addr, int maxLength) {
-    EEPROM.begin(EEPROM_SIZE);
-
     String result = "";
     for (int i = 0; i < maxLength; ++i) {
         char c = char(EEPROM.read(addr + i));

@@ -54,10 +54,13 @@ volatile unsigned long g_deviceOffSince = 0;
 
 // --- LCD OVERRIDE ---
 
-SemaphoreHandle_t g_lcdMutex        = NULL;
-String            g_lcdLine1        = "";
-String            g_lcdLine2        = "";
-unsigned long     g_lcdOverrideUntil = 0;   // millis() expired
+SemaphoreHandle_t g_lcdMutex         = NULL;
+String            g_lcdLine0         = "";
+String            g_lcdLine1         = "";
+String            g_lcdLine2         = "";
+String            g_lcdLine3         = "";
+bool              g_lcdOverrideFull  = false;
+unsigned long     g_lcdOverrideUntil = 0;
 
 // --- EEPROM's Credentials ---
 
@@ -87,9 +90,10 @@ void Task_UART_CAM (void* pv);
 void Task_Blynk    (void* pv);
 void Task_WebServer(void* pv);
 
-void setLCDOverride(const String& l1, const String& l2, unsigned long durationMs);
-void applyAlertToActuators(AlertState state);
 void connectToWiFiAndBlynk();
+void applyAlertToActuators(AlertState state);
+void setLCDOverrideRow3(const String& msg, unsigned long durationMs);
+void setLCDMenu(const String& l0, const String& l1, const String& l2, const String& l3, unsigned long durationMs);
 
 // --- BLYNK CALLBACKS ---
 
@@ -127,7 +131,7 @@ BLYNK_WRITE(THRESHOLD_PIN)
     EEPROM.write(ADDR_THRESH_L, val % 100);
     EEPROM.commit();
  
-    setLCDOverride("Threshold:", String(val) + " PPM", 2000);
+    setLCDOverrideRow3("Saved: " + String(val) + " PPM", 2000);
 
     g_dirty_threshold = false;
 }
@@ -177,7 +181,7 @@ void setup()
     // Create Tasks
     //                      Function        Name         Stack  Param  Prio Handle            Core
     xTaskCreatePinnedToCore(Task_Safety,    "Safety",    8192,  NULL,  5,   &hTask_Safety,    1);
-    xTaskCreatePinnedToCore(Task_Buzzer,    "Buzzer",    2048,  NULL,  4,   &hTask_Buzzer,    1);
+    xTaskCreatePinnedToCore(Task_Buzzer,    "Buzzer",    4096,  NULL,  4,   &hTask_Buzzer,    1);
     xTaskCreatePinnedToCore(Task_Keypad,    "Keypad",    8192,  NULL,  3,   &hTask_Keypad,    1);
     xTaskCreatePinnedToCore(Task_LCD,       "LCD",       8192,  NULL,  2,   &hTask_LCD,       1);
     xTaskCreatePinnedToCore(Task_UART_CAM,  "UART_CAM",  8192,  NULL,  4,   &hTask_UART_CAM,  0);
@@ -199,8 +203,8 @@ void connectToWiFiAndBlynk()
     // 2. If has credentials → Upgrade AP_STA and connect STA
     if (g_ssid.length() == 0) 
     {
-        ui.showMessage(0, 2, "No config → AP   ", false);
-        ui.showMessage(0, 3, "Connect ESP32:4.1", false);
+        ui.showMessage(0, 2, "  No credentials!  ", false);
+        ui.showMessage(0, 3, "  IP: 192.168.4.1  ", false);
 
         delay(2000);
         return;
@@ -223,20 +227,25 @@ void connectToWiFiAndBlynk()
     if (WiFi.status() != WL_CONNECTED) 
     {
         g_wifiConnected = false;
-        ui.showMessage(0, 2, "WiFi: FAILED      ", false);
-        ui.showMessage(0, 3, "AP still running  ", false);
+        ui.showMessage(0, 2, "    WiFi: FAILED    ", false);
+        ui.showMessage(0, 3, "  AP Still Running  ", false);
+
+        WiFi.disconnect(true);
+        delay(100);
+        WiFi.mode(WIFI_AP);
 
         delay(2000);
         return;
     }
  
-    g_wifiConnected = true;
-    ui.showMessage(0, 2, ("WiFi OK: " + g_ssid).substring(0, 20), false);
+    char wifiBuf[21];
+    snprintf(wifiBuf, sizeof(wifiBuf), "WiFi OK: %-11s", g_ssid.substring(0, 11).c_str());
+    ui.showMessage(0, 2, String(wifiBuf), false);
     delay(1000);
  
     if (g_blynkToken.length() != 32) 
     {
-        ui.showMessage(0, 3, "Blynk: bad token  ", false);
+        ui.showMessage(0, 3, "Blynk: Invalid Token", false);
 
         delay(1500);
         return;
@@ -249,22 +258,36 @@ void connectToWiFiAndBlynk()
     {
         g_blynkConnected = true;
 
-        ui.showMessage(0, 3, "Blynk: Connected  ", false);
+        ui.showMessage(0, 3, "  Blynk: Connected  ", false);
     } 
     else 
     {
-        ui.showMessage(0, 3, "Blynk: FAILED     ", false);
+        ui.showMessage(0, 3, "   Blynk: FAILED!   ", false);
     }
 
     delay(1500);
 }
 
-void setLCDOverride(const String& l1, const String& l2, unsigned long durationMs) 
+void setLCDMenu(const String& l0, const String& l1, const String& l2, const String& l3, unsigned long durationMs)
 {
-    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
-    {
-        g_lcdLine1        = l1.substring(0, LCD_COLS);
-        g_lcdLine2        = l2.substring(0, LCD_COLS);
+    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        g_lcdLine0 = l0; 
+        g_lcdLine1 = l1; 
+        g_lcdLine2 = l2; 
+        g_lcdLine3 = l3;
+
+        g_lcdOverrideFull = true;
+        g_lcdOverrideUntil = millis() + durationMs;
+
+        xSemaphoreGive(g_lcdMutex);
+    }
+}
+
+void setLCDOverrideRow3(const String& msg, unsigned long durationMs) 
+{
+    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        g_lcdLine3 = msg;
+        g_lcdOverrideFull = false;
         g_lcdOverrideUntil = millis() + durationMs;
         xSemaphoreGive(g_lcdMutex);
     }
@@ -352,14 +375,18 @@ void Task_Safety(void* pv)
         }
  
         // 5. Set Buzzer flag
-        if (newState != STATE_SAFE && !g_userSilenced) 
+        if (newState != STATE_SAFE) 
         {
-            g_buzzerActive = true;
+            if (!g_userSilenced || (stateChanged && newState == STATE_EMERGENCY)) 
+            {
+                g_buzzerActive = true;
+                g_userSilenced = false;
+            }
         } 
         else if (newState == STATE_SAFE) 
         {
             g_buzzerActive  = false;
-            g_userSilenced  = false;   // auto reset silence when safe
+            g_userSilenced  = false;
         }
  
         // 6. Trigger Blynk notification 1 time / new event
@@ -414,120 +441,204 @@ void Task_Buzzer(void* pv)
 
 void Task_Keypad(void* pv)
 {
-    enum KMode { KM_IDLE, KM_PIN, KM_THRESHOLD };
+    enum KMode { KM_IDLE, KM_MENU, KM_PIN, KM_THRESHOLD };
     KMode  kMode = KM_IDLE;
     String input = "";
+
+    unsigned long menuStartTime = 0;
  
     while (true) 
     {
-        // Only start scanning after warm-up
         if (!g_startupComplete) 
         {
             vTaskDelay(pdMS_TO_TICKS(200));
             continue;
         }
+
+        if (kMode == KM_MENU && (millis() - menuStartTime > 10000)) 
+        {
+            kMode = KM_IDLE;
+
+            if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
+            {
+                g_lcdOverrideUntil = 0;
+                xSemaphoreGive(g_lcdMutex);
+            }
+        }
  
         char key = ui.getPressedKey();
-        if (key == NO_KEY) 
+        if (key == '\0') 
         {
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
- 
-        // Alarm active → enter PIN to disable the buzzer
-        if (g_alertState != STATE_SAFE) 
-        {
-            if (kMode == KM_IDLE) 
-            {
-                if (key >= '0' && key <= '9') 
-                {
-                    kMode = KM_PIN;
-                    input = String(key);
-                    setLCDOverride("Enter PIN:", String(input.length()) + " digit(s)", 4000);
-                }
-            } 
-            else if (kMode == KM_PIN) 
-            {
-                if (key >= '0' && key <= '9') 
-                {
-                    input += key;
-                    setLCDOverride("Enter PIN:", String(input.length()) + " digit(s)", 4000);
-                } 
-                else if (key == '#') 
-                {
-                    if (input == DEFAULT_PIN_CODE) 
-                    {
-                        g_buzzerActive = false;
-                        g_userSilenced = true;
-                        setLCDOverride("PIN Correct!", "Buzzer Silenced", 2000);
-                    } 
-                    else 
-                    {
-                        setLCDOverride("Wrong PIN!", "Try Again", 2000);
-                    }
 
-                    input = ""; kMode = KM_IDLE;
-                } 
-                else if (key == '*') 
-                {
-                    input = ""; kMode = KM_IDLE;
-                    setLCDOverride("Cancelled", "", 1000);
-                }
-            }
-        }
-
-        // Normal state → press '*' to change the threshold
-        else 
+        if (g_alertState != STATE_SAFE && !g_userSilenced) 
         {
-            if (kMode == KM_IDLE && key == '*') 
+            if (kMode != KM_PIN) 
             {
-                kMode = KM_THRESHOLD;
+                kMode = KM_PIN; 
                 input = "";
-                setLCDOverride("New threshold:", "Enter 200-9999 + #", 8000);
-            } 
-            else if (kMode == KM_THRESHOLD) 
-            {
-                if (key >= '0' && key <= '9' && input.length() < 4) 
-                {
-                    input += key;
-                    setLCDOverride("Threshold:", input + " PPM", 8000);
-                } 
-                else if (key == '#') 
-                {
-                    int val = input.toInt();
-                    if (val >= 200 && val <= 9999) 
+
+                if (key >= '0' && key <= '9') input += key; 
+                
+                String stars = "";
+                for(int i = 0; i < input.length(); i++) stars += "*";
+
+                setLCDOverrideRow3("PIN: " + stars, 8000);
+
+                continue; 
+            }
+        }
+
+        if (kMode == KM_IDLE) 
+        {
+            if (key == '*') {
+                kMode = KM_MENU;
+                menuStartTime = millis();
+                setLCDMenu(" A: Toggle Mode     ", 
+                           " B: Set Threshold   ", 
+                           " C: Take Snapshot   ", 
+                           " D: Silence Buzzer  ", 10000);
+            }
+        }
+        else if (kMode == KM_MENU)
+        {
+            switch (key) {
+                case 'A':
+                    g_systemMode = (g_systemMode == MODE_AUTO) ? MODE_MANUAL : MODE_AUTO;
+                    EEPROM.write(ADDR_MODE, (uint8_t)g_systemMode); 
+                    EEPROM.commit();
+                    g_dirty_mode = true;
+                    setLCDOverrideRow3((g_systemMode == MODE_AUTO) ? "Mode: AUTO" : "Mode: MANUAL", 2000);
+                    kMode = KM_IDLE;
+                    break;
+
+                case 'B':
+                    kMode = KM_THRESHOLD; 
+                    input = "";
+                    setLCDOverrideRow3("Thresh: Enter + #", 8000);
+                    break;
+
+                case 'C':
+                    uart.sendSnapshotRequest();
+                    setLCDOverrideRow3("Snapshot Requested!", 2000);
+                    kMode = KM_IDLE;
+                    break;
+
+                case 'D':
+                    if (g_alertState != STATE_SAFE && !g_userSilenced) 
                     {
-                        g_gasThreshold = val;
-                        EEPROM.write(ADDR_THRESH_H, val / 100);
-                        EEPROM.write(ADDR_THRESH_L, val % 100);
-                        EEPROM.commit();
-                        g_dirty_threshold = true;
-                        setLCDOverride("Threshold set:", String(val) + " PPM", 2000);
+                        kMode = KM_PIN; input = "";
+                        setLCDOverrideRow3("PIN: ", 8000);
+                    } 
+                    else if (g_alertState == STATE_SAFE) 
+                    {
+                        setLCDOverrideRow3("Safe! No Alert", 2000);
+                        kMode = KM_IDLE;
                     } 
                     else 
                     {
-                        setLCDOverride("Invalid! Range:", "200 - 9999 PPM", 2000);
+                        setLCDOverrideRow3("Already Silenced!", 2000);
+                        kMode = KM_IDLE;
                     }
+                    break;
 
-                    input = ""; kMode = KM_IDLE;
-                } 
-                else if (key == '*') 
-                {
-                    input = ""; kMode = KM_IDLE;
-                    setLCDOverride("Cancelled", "", 1000);
-                }
+                case '*':
+                    kMode = KM_IDLE;
+                    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+                        g_lcdOverrideUntil = 0; 
+                        xSemaphoreGive(g_lcdMutex);
+                    }
+                    break;
+
+                default:
+                    menuStartTime = millis(); 
+                    break;
             }
         }
- 
+        else if (kMode == KM_PIN) 
+        {
+            if (key >= '0' && key <= '9' && input.length() < 4) 
+            {
+                input += key;
+                String stars = "";
+                for(int i = 0; i < input.length(); i++) stars += "*";
+
+                setLCDOverrideRow3("PIN: " + stars, 8000);
+            } 
+            else if (key == '#') 
+            {
+                if (input == DEFAULT_PIN_CODE) 
+                {
+                    g_buzzerActive = false; 
+                    g_userSilenced = true;
+
+                    setLCDOverrideRow3("Buzzer Silenced!", 2000);
+                } 
+                else 
+                {
+                    setLCDOverrideRow3("Wrong PIN!", 2000);
+                }
+
+                input = ""; 
+                kMode = KM_IDLE;
+            } 
+            else if (key == '*') 
+            {
+                input = ""; 
+                kMode = KM_IDLE;
+
+                setLCDOverrideRow3("Cancelled", 1000);
+            }
+        }
+        else if (kMode == KM_THRESHOLD) 
+        {
+            if (key >= '0' && key <= '9' && input.length() < 4) 
+            {
+                input += key;
+                setLCDOverrideRow3("Thresh: " + input + " PPM", 8000);
+            } 
+            else if (key == '#') 
+            {
+                int val = input.toInt();
+
+                if (val >= 200 && val <= 9999) 
+                {
+                    g_gasThreshold = val;
+
+                    EEPROM.write(ADDR_THRESH_H, val / 100); 
+                    EEPROM.write(ADDR_THRESH_L, val % 100); 
+                    EEPROM.commit();
+
+                    g_dirty_threshold = true;
+
+                    setLCDOverrideRow3("Saved: " + String(val) + " PPM", 2000);
+                } 
+                else 
+                {
+                    setLCDOverrideRow3("Invalid! 200-9999", 2000);
+                }
+
+                input = ""; kMode = KM_IDLE;
+            } 
+            else if (key == '*') 
+            {
+                input = ""; 
+                kMode = KM_IDLE;
+
+                setLCDOverrideRow3("Cancelled", 1000);
+            }
+        }
+
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
 void Task_LCD(void* pv)
 {
-    // Warm-up countdown
     unsigned long warmupStart = millis();
-    const unsigned long WARMUP_MS = 10000UL;
+    const unsigned long WARMUP_MS = 60000UL;
  
     while (!g_startupComplete) 
     {
@@ -537,67 +648,84 @@ void Task_LCD(void* pv)
         if (elapsed >= WARMUP_MS) 
         {
             g_startupComplete = true;
-
-            ui.showMessage(2, 2, "System  Ready!  ", true);
-            ui.showMessage(0, 3, "  Monitoring... ", false);
+            ui.showMessage(0, 2, "   System Ready!    ", true);
+            ui.showMessage(0, 3, "   Monitoring...    ", false);
 
             vTaskDelay(pdMS_TO_TICKS(1500));
             break;
         }
  
         char buf[LCD_COLS + 1];
-        snprintf(buf, sizeof(buf), " Warmup: %2ds left  ", remaining);
+        snprintf(buf, sizeof(buf), "  Warmup: %2ds left  ", remaining);
         ui.showMessage(0, 2, String(buf), false);
- 
+
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
  
-    // Main display loop
     while (true) 
     {
         bool hasOverride = false;
-        String ol1, ol2;
+        bool isFullOverride = false;
+
+        String ol0, ol1, ol2, ol3;
  
         if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(20)) == pdTRUE) 
         {
             if (g_lcdOverrideUntil > 0 && millis() < g_lcdOverrideUntil) 
             {
                 hasOverride = true;
-                ol1 = g_lcdLine1;
-                ol2 = g_lcdLine2;
+                isFullOverride = g_lcdOverrideFull;
+
+                ol0 = g_lcdLine0; 
+                ol1 = g_lcdLine1; 
+                ol2 = g_lcdLine2; 
+                ol3 = g_lcdLine3;
             } 
             else 
             {
-                g_lcdOverrideUntil = 0;   // Expired, Delete
+                g_lcdOverrideUntil = 0;   
             }
 
             xSemaphoreGive(g_lcdMutex);
         }
  
-        if (hasOverride) 
+        char row0[21], row1[21], row2[21], row3[21];
+
+        if (hasOverride && isFullOverride) 
         {
-            // Only override row 1 & 2, keep row 0 & 3 (sensors's data)
-            char pad[LCD_COLS + 1];
-
-            snprintf(pad, sizeof(pad), "%-20s", ol1.substring(0, LCD_COLS).c_str());
-            ui.showMessage(0, 1, String(pad), false);
-
-            snprintf(pad, sizeof(pad), "%-20s", ol2.substring(0, LCD_COLS).c_str());
-            ui.showMessage(0, 2, String(pad), false);
+            snprintf(row0, sizeof(row0), "%-20s", ol0.substring(0, LCD_COLS).c_str());
+            snprintf(row1, sizeof(row1), "%-20s", ol1.substring(0, LCD_COLS).c_str());
+            snprintf(row2, sizeof(row2), "%-20s", ol2.substring(0, LCD_COLS).c_str());
+            snprintf(row3, sizeof(row3), "%-20s", ol3.substring(0, LCD_COLS).c_str());
         } 
         else 
         {
-            ui.updateMainScreen(
-                (int)g_gasValue,
-                (bool)g_fireDetected,
-                (int)g_relayState,
-                (bool)g_doorOpen,
-                (bool)g_wifiConnected,
-                (SystemMode)g_systemMode
-            );
+            // Always update Row 0, 1, 2 real-time
+            snprintf(row0, sizeof(row0), "GAS: %-4dPPM FIRE: %d", (int)g_gasValue, g_fireDetected ? 1 : 0);
+            
+            String doorStr = g_doorOpen ? "OPEN " : "CLOSE";
+            snprintf(row1, sizeof(row1), "RELAY: %d DOOR: %-5s", (int)g_relayState, doorStr.c_str());
+            
+            String wifiStr = g_wifiConnected ? "ON " : "OFF";
+            String modeStr = (g_systemMode == MODE_AUTO) ? "AUTO" : "MANUAL";
+            snprintf(row2, sizeof(row2), "WIFI: %-3s MODE: %-6s", wifiStr.c_str(), modeStr.c_str());
+
+            // Only override Row 3
+            if (hasOverride && !isFullOverride) {
+                snprintf(row3, sizeof(row3), "%-20s", ol3.substring(0, LCD_COLS).c_str());
+            } 
+            else 
+            {
+                snprintf(row3, sizeof(row3), " > Press * for Menu ");
+            }
         }
+
+        ui.showMessage(0, 0, String(row0), false);
+        ui.showMessage(0, 1, String(row1), false);
+        ui.showMessage(0, 2, String(row2), false);
+        ui.showMessage(0, 3, String(row3), false);
  
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(250));
     }
 }
 
@@ -682,23 +810,21 @@ void Task_Blynk(void* pv)
 
     while (true) 
     {
-        // 1. LUÔN LUÔN chạy Blynk.run() để duy trì Heartbeat với máy chủ, tránh bị đá khỏi mạng
         if (g_blynkConnected) 
         {
             Blynk.run();
             
-            // 2. CHỈ ĐƯỢC đẩy dữ liệu cảm biến lên App KHI VÀ CHỈ KHI đã hết 60s khởi động
             if (g_startupComplete) 
             {
-                // Đồng bộ 5 thông số lần đầu tiên sau khi khởi động xong
                 if (!initialSynced) {
                     Blynk.virtualWrite(GAS_PIN,       (int)g_gasValue);
                     Blynk.virtualWrite(RELAY_PIN,     (int)g_relayState);
                     Blynk.virtualWrite(SERVO_PIN,     g_doorOpen ? 1 : 0);
                     Blynk.virtualWrite(THRESHOLD_PIN, (int)g_gasThreshold);
                     Blynk.virtualWrite(MODE_PIN,      (g_systemMode == MODE_AUTO) ? 1 : 0);
+
                     initialSynced = true;
-                    lastGasUpdate = millis(); // Bắt đầu tính mốc thời gian
+                    lastGasUpdate = millis();
                 }
      
                 // Gửi nồng độ Gas định kỳ mỗi 2 giây

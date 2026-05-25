@@ -14,7 +14,7 @@
 #define PIN_RELAY_PUMP  5
 #define PIN_SERVO       33
 #define PIN_BUZZER      23
-#define PIN_LED         10
+#define PIN_LED         19
 
 // --- Displays & Communication ---
 #define PIN_I2C_SDA     21
@@ -37,7 +37,7 @@
 #define SERIAL_DEBUG_BAUD   115200
 #define SERIAL_COMM_BAUD    115200
 
-#define DEFAULT_GAS_THRESH  2200
+#define DEFAULT_GAS_THRESH  1200
 #define GAS_HYSTERESIS      100
 #define DEFAULT_PIN_CODE    "0712"
 
