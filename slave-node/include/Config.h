@@ -28,9 +28,8 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// ==========================================
 // 2. CLOUD CONFIGURATIONS
-// ==========================================
+
 #define TG_TOKEN        "8482773700:AAEHaS262jfhuiuB-lnwhSgD6TQZ41iv4yM"
 #define TG_CHAT_ID      "7257541474"
 #define AWS_API_URL     "https://4249qf98qj.execute-api.ap-southeast-1.amazonaws.com/default/LuuAnhBaoChay"
