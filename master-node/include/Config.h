@@ -39,7 +39,7 @@
 
 #define DEFAULT_GAS_THRESH  1200
 #define GAS_HYSTERESIS      100
-#define DEFAULT_PIN_CODE    "0712"
+#define DEFAULT_PIN_CODE    "2212"
 
 // Servo Angles
 #define SERVO_CLOSE_ANGLE   0

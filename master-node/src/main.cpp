@@ -206,7 +206,7 @@ void connectToWiFiAndBlynk()
         ui.showMessage(0, 2, "  No credentials!  ", false);
         ui.showMessage(0, 3, "  IP: 192.168.4.1  ", false);
 
-        delay(2000);
+        delay(5000);
         return;
     }
  
@@ -234,9 +234,11 @@ void connectToWiFiAndBlynk()
         delay(100);
         WiFi.mode(WIFI_AP);
 
-        delay(2000);
+        delay(5000);
         return;
     }
+
+    g_wifiConnected = true;
  
     char wifiBuf[21];
     snprintf(wifiBuf, sizeof(wifiBuf), "WiFi OK: %-11s", g_ssid.substring(0, 11).c_str());
@@ -504,7 +506,8 @@ void Task_Keypad(void* pv)
         }
         else if (kMode == KM_MENU)
         {
-            switch (key) {
+            switch (key) 
+            {
                 case 'A':
                     g_systemMode = (g_systemMode == MODE_AUTO) ? MODE_MANUAL : MODE_AUTO;
                     EEPROM.write(ADDR_MODE, (uint8_t)g_systemMode); 
@@ -521,8 +524,15 @@ void Task_Keypad(void* pv)
                     break;
 
                 case 'C':
-                    uart.sendSnapshotRequest();
-                    setLCDOverrideRow3("Snapshot Requested!", 2000);
+                    if (g_botToken.length() > 0) 
+                    {
+                        uart.sendSnapshotRequest();
+                        setLCDOverrideRow3("Snapshot Requested!", 2000);
+                    } 
+                    else 
+                    {
+                        setLCDOverrideRow3("No Tele Config!", 2000);
+                    }
                     kMode = KM_IDLE;
                     break;
 
@@ -638,7 +648,7 @@ void Task_Keypad(void* pv)
 void Task_LCD(void* pv)
 {
     unsigned long warmupStart = millis();
-    const unsigned long WARMUP_MS = 60000UL;
+    const unsigned long WARMUP_MS = 30000UL;
  
     while (!g_startupComplete) 
     {
@@ -793,7 +803,12 @@ void Task_UART_CAM(void* pv)
                 else if (cur == STATE_EMERGENCY) type = "EMERGENCY";
                 
                 uart.sendStatus("ALERT", type, (int)g_gasValue);
-                uart.sendSnapshotRequest();   // Chỉ chụp ảnh khi có sự cố
+                
+                // Chỉ yêu cầu chụp ảnh khi Telegram đã được cấu hình
+                if (g_botToken.length() > 0) 
+                {
+                    uart.sendSnapshotRequest();   
+                }
             }
  
             lastSentAlert = cur;

@@ -14,9 +14,10 @@ private:
 
     void handleRoot();
     void handleNotFound();
-    void sendSuccessPage();
     void handleSaveConfig();
+    void handleDeleteTelegram();
     void sendErrorPage(String errorMessage);
+    void sendSuccessPage(String message = "Lưu Cấu Hình Thành Công!");
     
     void saveStringToEEPROM(int addr, String data, int maxLength);
     String readStringFromEEPROM(int addr, int maxLength);
