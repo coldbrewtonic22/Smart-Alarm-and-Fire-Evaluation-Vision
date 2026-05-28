@@ -42,6 +42,7 @@ volatile bool       g_startupComplete = false;   // Finish 60-seconds Warm-up
  
 // Blynk dirty-flag (avoid flood)
 volatile bool       g_dirty_gas       = false;
+volatile bool       g_dirty_fire      = false;
 volatile bool       g_dirty_relay     = false;
 volatile bool       g_dirty_door      = false;
 volatile bool       g_dirty_mode      = false;
@@ -59,6 +60,7 @@ String            g_lcdLine0         = "";
 String            g_lcdLine1         = "";
 String            g_lcdLine2         = "";
 String            g_lcdLine3         = "";
+String            g_pinDisplay       = "";
 bool              g_lcdOverrideFull  = false;
 unsigned long     g_lcdOverrideUntil = 0;
 
@@ -91,9 +93,12 @@ void Task_Blynk    (void* pv);
 void Task_WebServer(void* pv);
 
 void connectToWiFiAndBlynk();
+void updatePinDisplay(String stars);
 void applyAlertToActuators(AlertState state);
 void setLCDOverrideRow3(const String& msg, unsigned long durationMs);
 void setLCDMenu(const String& l0, const String& l1, const String& l2, const String& l3, unsigned long durationMs);
+
+String centerText(const String& text);
 
 // --- BLYNK CALLBACKS ---
 
@@ -148,6 +153,29 @@ BLYNK_WRITE(MODE_PIN)
     g_dirty_mode = false;
 }
 
+String centerText(const String& text) 
+{
+    if (text.length() >= LCD_COLS) return text.substring(0, LCD_COLS);
+
+    int padding = (LCD_COLS - text.length()) / 2;
+    String result = "";
+
+    for (int i = 0; i < padding; i++) result += " ";
+    result += text;
+    while (result.length() < LCD_COLS) result += " ";
+
+    return result;
+}
+
+void updatePinDisplay(String stars) 
+{
+    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
+    {
+        g_pinDisplay = stars;
+        xSemaphoreGive(g_lcdMutex);
+    }
+}
+
 void setup()
 {
     Serial.begin(SERIAL_DEBUG_BAUD);
@@ -163,7 +191,6 @@ void setup()
     sensors.begin();
     actuators.begin();
  
-    // Warm-up display
     ui.showStartupScreen();
     delay(2000);
  
@@ -345,6 +372,11 @@ void Task_Safety(void* pv)
         sensors.readSensors();
         int  gas  = sensors.getGasValue();
         bool fire = sensors.isFireDetected();
+
+        if (fire != g_fireDetected) 
+        {
+            g_dirty_fire = true;
+        }
  
         g_gasValue     = gas;
         g_fireDetected = fire;
@@ -481,6 +513,14 @@ void Task_Keypad(void* pv)
             {
                 kMode = KM_PIN; 
                 input = "";
+                updatePinDisplay("");
+
+                // Hủy hiển thị Menu để nhường chỗ cho Alert Screen
+                if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
+                {
+                    g_lcdOverrideUntil = 0; 
+                    xSemaphoreGive(g_lcdMutex);
+                }
 
                 if (key >= '0' && key <= '9') input += key; 
                 
@@ -575,8 +615,15 @@ void Task_Keypad(void* pv)
                 String stars = "";
                 for(int i = 0; i < input.length(); i++) stars += "*";
 
-                setLCDOverrideRow3("PIN: " + stars, 8000);
-            } 
+                if (g_alertState != STATE_SAFE && !g_userSilenced) 
+                {
+                    updatePinDisplay(stars);
+                } 
+                else 
+                {
+                    setLCDOverrideRow3("PIN: " + stars, 8000); 
+                }
+            }
             else if (key == '#') 
             {
                 if (input == DEFAULT_PIN_CODE) 
@@ -676,8 +723,10 @@ void Task_LCD(void* pv)
     {
         bool hasOverride = false;
         bool isFullOverride = false;
+        bool isAlert = (g_alertState != STATE_SAFE && !g_userSilenced);
 
         String ol0, ol1, ol2, ol3;
+        String currentPinDisplay = "";
  
         if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(20)) == pdTRUE) 
         {
@@ -696,37 +745,70 @@ void Task_LCD(void* pv)
                 g_lcdOverrideUntil = 0;   
             }
 
+            currentPinDisplay = g_pinDisplay;
             xSemaphoreGive(g_lcdMutex);
         }
  
         char row0[21], row1[21], row2[21], row3[21];
 
-        if (hasOverride && isFullOverride) 
+        // LOGIC 1: ALERT SCREEN (CHIẾM QUYỀN ƯU TIÊN CAO NHẤT)
+        if (isAlert) 
         {
-            snprintf(row0, sizeof(row0), "%-20s", ol0.substring(0, LCD_COLS).c_str());
-            snprintf(row1, sizeof(row1), "%-20s", ol1.substring(0, LCD_COLS).c_str());
-            snprintf(row2, sizeof(row2), "%-20s", ol2.substring(0, LCD_COLS).c_str());
-            snprintf(row3, sizeof(row3), "%-20s", ol3.substring(0, LCD_COLS).c_str());
+            String alertTitle = "";
+            String alertDesc = "";
+            
+            if (g_alertState == STATE_EMERGENCY) 
+            {
+                alertTitle = "EMERGENCY";
+                alertDesc = "GAS & FIRE DETECTED!";
+            } 
+            else if (g_alertState == STATE_FIRE_ONLY) 
+            {
+                alertTitle = "EMERGENCY";
+                alertDesc = "FIRE DETECTED!";
+            } 
+            else if (g_alertState == STATE_GAS_ONLY) 
+            {
+                alertTitle = "WARNING";
+                alertDesc = "GAS LEAKED DETECTED!";
+            }
+            
+            String r2 = "Door: OPEN Relay: " + String(g_relayState);
+            String r3 = "Enter Pin: " + currentPinDisplay;
+            
+            snprintf(row0, sizeof(row0), "%s", centerText(alertTitle).c_str());
+            snprintf(row1, sizeof(row1), "%s", centerText(alertDesc).c_str());
+            snprintf(row2, sizeof(row2), "%s", centerText(r2).c_str());
+            snprintf(row3, sizeof(row3), "%-20s", r3.c_str());
         } 
+        // LOGIC 2: MENU & OVERRIDE
+        else if (hasOverride && isFullOverride) 
+        {
+            snprintf(row0, sizeof(row0), "%s", centerText(ol0).c_str());
+            snprintf(row1, sizeof(row1), "%s", centerText(ol1).c_str());
+            snprintf(row2, sizeof(row2), "%s", centerText(ol2).c_str());
+            snprintf(row3, sizeof(row3), "%s", centerText(ol3).c_str());
+        } 
+        // LOGIC 3: MAIN SCREEN
         else 
         {
-            // Always update Row 0, 1, 2 real-time
-            snprintf(row0, sizeof(row0), "GAS: %-4dPPM FIRE: %d", (int)g_gasValue, g_fireDetected ? 1 : 0);
+            // Dùng snprintf để CỐ ĐỊNH vị trí các chữ, không bị thò thụt khi số thay đổi
+            snprintf(row0, sizeof(row0), "GAS:%-4d PPM  FIRE:%d", (int)g_gasValue, g_fireDetected ? 1 : 0);
             
-            String doorStr = g_doorOpen ? "OPEN " : "CLOSE";
-            snprintf(row1, sizeof(row1), "RELAY: %d DOOR: %-5s", (int)g_relayState, doorStr.c_str());
+            String doorStr = g_doorOpen ? "OPEN " : "CLOSE"; // Cố định 5 ký tự
+            snprintf(row1, sizeof(row1), "RELAY:%d   DOOR:%s", (int)g_relayState, doorStr.c_str());
             
-            String wifiStr = g_wifiConnected ? "ON " : "OFF";
-            String modeStr = (g_systemMode == MODE_AUTO) ? "AUTO" : "MANUAL";
-            snprintf(row2, sizeof(row2), "WIFI: %-3s MODE: %-6s", wifiStr.c_str(), modeStr.c_str());
+            String wifiStr = g_wifiConnected ? "ON " : "OFF"; // Cố định 3 ký tự
+            String modeStr = (g_systemMode == MODE_AUTO) ? "AUTO  " : "MANUAL"; // Cố định 6 ký tự
+            snprintf(row2, sizeof(row2), "WIFI:%s MODE:%s", wifiStr.c_str(), modeStr.c_str());
 
-            // Only override Row 3
-            if (hasOverride && !isFullOverride) {
-                snprintf(row3, sizeof(row3), "%-20s", ol3.substring(0, LCD_COLS).c_str());
+            if (hasOverride && !isFullOverride) 
+            {
+                snprintf(row3, sizeof(row3), "%s", centerText(ol3).c_str());
             } 
             else 
             {
-                snprintf(row3, sizeof(row3), " > Press * for Menu ");
+                snprintf(row3, sizeof(row3), "%s", centerText("> Press * for Menu").c_str());
             }
         }
 
@@ -831,8 +913,10 @@ void Task_Blynk(void* pv)
             
             if (g_startupComplete) 
             {
-                if (!initialSynced) {
+                if (!initialSynced) 
+                {
                     Blynk.virtualWrite(GAS_PIN,       (int)g_gasValue);
+                    Blynk.virtualWrite(FIRE_PIN,      g_fireDetected ? 1 : 0);
                     Blynk.virtualWrite(RELAY_PIN,     (int)g_relayState);
                     Blynk.virtualWrite(SERVO_PIN,     g_doorOpen ? 1 : 0);
                     Blynk.virtualWrite(THRESHOLD_PIN, (int)g_gasThreshold);
@@ -843,31 +927,44 @@ void Task_Blynk(void* pv)
                 }
      
                 // Gửi nồng độ Gas định kỳ mỗi 2 giây
-                if (millis() - lastGasUpdate >= 2000) {
+                if (millis() - lastGasUpdate >= 2000) 
+                {
                     Blynk.virtualWrite(GAS_PIN, (int)g_gasValue);
+                    Blynk.virtualWrite(FIRE_PIN, g_fireDetected ? 1 : 0);
+
                     lastGasUpdate = millis();
                 }
 
                 // Gửi các thay đổi trạng thái thiết bị (Cờ Dirty)
-                if (g_dirty_relay) { 
+                if (g_dirty_fire) 
+                {
+                    Blynk.virtualWrite(FIRE_PIN, g_fireDetected ? 1 : 0);
+                    g_dirty_fire = false;
+                }
+                if (g_dirty_relay) 
+                { 
                     Blynk.virtualWrite(RELAY_PIN, (int)g_relayState); 
                     g_dirty_relay = false; 
                 }
-                if (g_dirty_door) { 
+                if (g_dirty_door) 
+                { 
                     Blynk.virtualWrite(SERVO_PIN, g_doorOpen ? 1 : 0); 
                     g_dirty_door = false; 
                 }
-                if (g_dirty_mode) { 
+                if (g_dirty_mode) 
+                { 
                     Blynk.virtualWrite(MODE_PIN, (g_systemMode == MODE_AUTO) ? 1 : 0); 
                     g_dirty_mode = false; 
                 }
-                if (g_dirty_threshold) { 
+                if (g_dirty_threshold) 
+                { 
                     Blynk.virtualWrite(THRESHOLD_PIN, (int)g_gasThreshold); 
                     g_dirty_threshold = false; 
                 }
      
                 // Gửi cảnh báo sự cố về App
-                if (g_dirty_notify) {
+                if (g_dirty_notify) 
+                {
                     const char* msg = nullptr;
                     switch ((AlertState)g_lastNotified) {
                         case STATE_EMERGENCY: msg = "EMERGENCY: Gas & Fire detected!"; break;
@@ -875,6 +972,7 @@ void Task_Blynk(void* pv)
                         case STATE_FIRE_ONLY: msg = "WARNING: Fire detected!";          break;
                         default: break;
                     }
+
                     if (msg) Blynk.logEvent("gas_fire_detection", msg);
                     g_dirty_notify = false;
                 }

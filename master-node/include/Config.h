@@ -92,5 +92,6 @@ enum AlertState {
 #define SERVO_PIN         V2
 #define THRESHOLD_PIN     V3
 #define MODE_PIN          V4
+#define FIRE_PIN          V5
 
 #endif
