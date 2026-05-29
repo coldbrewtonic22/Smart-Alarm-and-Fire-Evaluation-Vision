@@ -114,6 +114,7 @@ BLYNK_WRITE(RELAY_PIN)
     }
  
     int state = param.asInt();
+
     g_relayState = state;
 
     actuators.controlRelays(state == 1 || state == 3, state == 2 || state == 3);
@@ -171,14 +172,26 @@ BLYNK_WRITE(MODE_PIN)
 
 String centerText(const String& text) 
 {
-    if (text.length() >= LCD_COLS) return text.substring(0, LCD_COLS);
+    if (text.length() >= LCD_COLS)
+    {
+        return text.substring(0, LCD_COLS);
+    } 
 
     int padding = (LCD_COLS - text.length()) / 2;
+
     String result = "";
 
-    for (int i = 0; i < padding; i++) result += " ";
+    for (int i = 0; i < padding; i++) 
+    {
+        result += " ";
+    }
+
     result += text;
-    while (result.length() < LCD_COLS) result += " ";
+
+    while (result.length() < LCD_COLS) 
+    {
+        result += " ";
+    }
 
     return result;
 }
@@ -221,16 +234,26 @@ void setup()
 
     // Initialize the PIN code from EEPROM
     g_currentPin = "";
+
     for (int i = 0; i < 4; i++) 
     {
         char c = char(EEPROM.read(ADDR_PIN + i));
-        if (c >= '0' && c <= '9') g_currentPin += c;
+        if (c >= '0' && c <= '9')
+        {
+            g_currentPin += c;
+        } 
     }
+
     // If the EEPROM is empty (PIN has never been set), automatically load the default PIN
     if (g_currentPin.length() != 4) 
     {
         g_currentPin = DEFAULT_PIN_CODE;
-        for (int i = 0; i < 4; i++) EEPROM.write(ADDR_PIN + i, g_currentPin[i]);
+
+        for (int i = 0; i < 4; i++) 
+        {
+            EEPROM.write(ADDR_PIN + i, g_currentPin[i]);
+        }
+
         EEPROM.commit();
     }
  
@@ -285,6 +308,7 @@ void connectToWiFiAndBlynk()
     if (WiFi.status() != WL_CONNECTED) 
     {
         g_wifiConnected = false;
+
         ui.showMessage(0, 2, "    WiFi: FAILED    ", false);
         ui.showMessage(0, 3, "  AP Still Running  ", false);
 
@@ -301,6 +325,7 @@ void connectToWiFiAndBlynk()
     char wifiBuf[21];
     snprintf(wifiBuf, sizeof(wifiBuf), "WiFi OK: %-11s", g_ssid.substring(0, 11).c_str());
     ui.showMessage(0, 2, String(wifiBuf), false);
+
     delay(1000);
  
     if (g_blynkToken.length() != 32) 
@@ -361,24 +386,30 @@ void applyAlertToActuators(AlertState state)
             actuators.controlRelays(true, true);
             actuators.controlDoor(true);
             actuators.setLED(true);
+
             g_relayState = 3;
             g_doorOpen   = true;
+
             break;
  
         case STATE_GAS_ONLY:
             actuators.controlRelays(true, false);
             actuators.controlDoor(true);
             actuators.setLED(true);
+
             g_relayState = 1;
             g_doorOpen   = true;
+
             break;
  
         case STATE_FIRE_ONLY:
             actuators.controlRelays(false, true);
             actuators.controlDoor(true);
             actuators.setLED(true);
+
             g_relayState = 2;
             g_doorOpen   = true;
+
             break;
  
         case STATE_SAFE:
@@ -387,8 +418,10 @@ void applyAlertToActuators(AlertState state)
             actuators.controlRelays(false, false);
             actuators.controlDoor(false);
             actuators.setLED(false);
+
             g_relayState = 0;
             g_doorOpen   = false;
+
             break;
     }
 }
@@ -405,7 +438,11 @@ void runHardwareTest()
     actuators.controlDoor(true); vTaskDelay(pdMS_TO_TICKS(1000)); actuators.controlDoor(false);
 
     setLCDMenu(centerText("HARDWARE TEST"), centerText("Testing Camera..."), "", "", 2000);
-    if (g_botToken.length() > 0) uart.sendSnapshotRequest();
+    if (g_botToken.length() > 0) 
+    {
+        uart.sendSnapshotRequest();
+    }
+
     vTaskDelay(pdMS_TO_TICKS(1000));
 
     setLCDMenu(centerText("HARDWARE TEST"), centerText("Test Completed!"), "", "", 2000);
@@ -432,16 +469,37 @@ void Task_Safety(void* pv)
         g_dirty_gas    = true;
  
         // 2. Hysteresis gas
-        if      (gas >= g_gasThreshold)                  gasAbove = true;
-        else if (gas < g_gasThreshold - GAS_HYSTERESIS)  gasAbove = false;
+        if (gas >= g_gasThreshold)
+        {
+            gasAbove = true;
+        }
+        else if (gas < g_gasThreshold - GAS_HYSTERESIS)  
+        {
+            gasAbove = false;
+        }
  
         // 3. Determine the alarm status
         AlertState newState;
-        if      (g_sosActive)       newState = STATE_EMERGENCY;     // S.O.S overrides all sensor states
-        else if (gasAbove && fire)  newState = STATE_EMERGENCY;
-        else if (gasAbove)          newState = STATE_GAS_ONLY;
-        else if (fire)              newState = STATE_FIRE_ONLY;
-        else                        newState = STATE_SAFE;
+        if (g_sosActive)       
+        {
+            newState = STATE_EMERGENCY;
+        }
+        else if (gasAbove && fire) 
+        {
+            newState = STATE_EMERGENCY;
+        }
+        else if (gasAbove)          
+        {
+            newState = STATE_GAS_ONLY;
+        }
+        else if (fire)
+        {
+            newState = STATE_FIRE_ONLY;
+        }
+        else 
+        {
+            newState = STATE_SAFE;
+        }
  
         bool stateChanged = (newState != g_alertState);
         g_alertState      = newState;
@@ -519,6 +577,7 @@ void Task_Buzzer(void* pv)
     while (true) 
     {
         actuators.handleBuzzer(g_buzzerActive);
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -717,17 +776,22 @@ void Task_Keypad(void* pv)
                 {
                     kMode = KM_NEW_PIN; 
                     input = "";
+
                     setLCDOverrideRow3("New PIN: ", 10000);
                 } 
                 else 
                 {
                     setLCDOverrideRow3(centerText("Wrong PIN!"), 2000);
-                    input = ""; kMode = KM_IDLE;
+
+                    input = ""; 
+                    kMode = KM_IDLE;
                 }
             } 
             else if (key == '*') 
             {
-                input = ""; kMode = KM_IDLE;
+                input = ""; 
+                kMode = KM_IDLE;
+
                 setLCDOverrideRow3(centerText("Cancelled"), 1000);
             }
         }
@@ -758,12 +822,14 @@ void Task_Keypad(void* pv)
                     setLCDOverrideRow3(centerText("Must be 4 digits!"), 2000);
                 }
 
-                input = ""; kMode = KM_IDLE;
+                input = ""; 
+                kMode = KM_IDLE;
             } 
             else if (key == '*') 
             {
                 input = ""; 
                 kMode = KM_IDLE;
+
                 setLCDOverrideRow3(centerText("Cancelled"), 1000);
             }
         }
@@ -837,6 +903,7 @@ void Task_LCD(void* pv)
         if (elapsed >= WARMUP_MS) 
         {
             g_startupComplete = true;
+
             ui.showMessage(0, 2, "   System Ready!    ", true);
             ui.showMessage(0, 3, "   Monitoring...    ", false);
 
@@ -883,7 +950,6 @@ void Task_LCD(void* pv)
  
         char row0[21], row1[21], row2[21], row3[21];
 
-        // LOGIC 1: ALERT SCREEN (CHIẾM QUYỀN ƯU TIÊN CAO NHẤT)
         if (isAlert) 
         {
             String alertTitle = "";
@@ -917,26 +983,23 @@ void Task_LCD(void* pv)
             snprintf(row1, sizeof(row1), "%s", centerText(alertDesc).c_str());
             snprintf(row2, sizeof(row2), "%s", centerText(r2).c_str());
             snprintf(row3, sizeof(row3), "%-20s", r3.c_str());
-        } 
-        // LOGIC 2: MENU & OVERRIDE
+        }
         else if (hasOverride && isFullOverride) 
         {
             snprintf(row0, sizeof(row0), "%s", centerText(ol0).c_str());
             snprintf(row1, sizeof(row1), "%s", centerText(ol1).c_str());
             snprintf(row2, sizeof(row2), "%s", centerText(ol2).c_str());
             snprintf(row3, sizeof(row3), "%s", centerText(ol3).c_str());
-        } 
-        // LOGIC 3: MAIN SCREEN
+        }
         else 
         {
-            // Dùng snprintf để CỐ ĐỊNH vị trí các chữ, không bị thò thụt khi số thay đổi
             snprintf(row0, sizeof(row0), "GAS:%-4d PPM  FIRE:%d", (int)g_gasValue, g_fireDetected ? 1 : 0);
             
-            String doorStr = g_doorOpen ? "OPEN " : "CLOSE"; // Cố định 5 ký tự
+            String doorStr = g_doorOpen ? "OPEN " : "CLOSE";
             snprintf(row1, sizeof(row1), "RELAY:%d   DOOR:%s", (int)g_relayState, doorStr.c_str());
             
-            String wifiStr = g_wifiConnected ? "ON " : "OFF"; // Cố định 3 ký tự
-            String modeStr = (g_systemMode == MODE_AUTO) ? "AUTO  " : "MANUAL"; // Cố định 6 ký tự
+            String wifiStr = g_wifiConnected ? "ON " : "OFF";
+            String modeStr = (g_systemMode == MODE_AUTO) ? "AUTO  " : "MANUAL";
             snprintf(row2, sizeof(row2), "WIFI:%s MODE:%s", wifiStr.c_str(), modeStr.c_str());
 
             if (hasOverride && !isFullOverride) 
@@ -975,6 +1038,7 @@ void Task_UART_CAM(void* pv)
                 if (rxBuf.length() > 0) 
                 {
                     JsonDocument doc;
+
                     if (!deserializeJson(doc, rxBuf)) 
                     {
                         const char* cmd = doc["cmd"] | "";
@@ -1023,7 +1087,7 @@ void Task_UART_CAM(void* pv)
                 
                 uart.sendStatus("ALERT", type, (int)g_gasValue);
                 
-                // Chỉ yêu cầu chụp ảnh khi Telegram đã được cấu hình
+                // Only request image capture if Telegram has been configured
                 if (g_botToken.length() > 0) 
                 {
                     uart.sendSnapshotRequest();   
@@ -1063,7 +1127,7 @@ void Task_Blynk(void* pv)
                     lastGasUpdate = millis();
                 }
      
-                // Gửi nồng độ Gas định kỳ mỗi 2 giây
+                // Periodically send gas concentration and flame status every 2 seconds
                 if (millis() - lastGasUpdate >= 2000) 
                 {
                     Blynk.virtualWrite(GAS_PIN, (int)g_gasValue);
@@ -1072,7 +1136,7 @@ void Task_Blynk(void* pv)
                     lastGasUpdate = millis();
                 }
 
-                // Gửi các thay đổi trạng thái thiết bị (Cờ Dirty)
+                // Send device state changes (Dirty flag)
                 if (g_dirty_fire) 
                 {
                     Blynk.virtualWrite(FIRE_PIN, g_fireDetected ? 1 : 0);
@@ -1099,24 +1163,30 @@ void Task_Blynk(void* pv)
                     g_dirty_threshold = false; 
                 }
      
-                // Gửi cảnh báo sự cố về App
+                // Send alerts to the app
                 if (g_dirty_notify) 
                 {
                     const char* msg = nullptr;
-                    switch ((AlertState)g_lastNotified) {
-                        case STATE_EMERGENCY: msg = "EMERGENCY: Gas & Fire detected!"; break;
+
+                    switch ((AlertState)g_lastNotified) 
+                    {
+                        case STATE_EMERGENCY: msg = "EMERGENCY: Gas & Fire detected!";  break;
                         case STATE_GAS_ONLY:  msg = "WARNING: High gas concentration!"; break;
                         case STATE_FIRE_ONLY: msg = "WARNING: Fire detected!";          break;
                         default: break;
                     }
 
-                    if (msg) Blynk.logEvent("gas_fire_detection", msg);
+                    if (msg) 
+                    {
+                        Blynk.logEvent("gas_fire_detection", msg);
+                    }
+
                     g_dirty_notify = false;
                 }
             }
         }
  
-        vTaskDelay(pdMS_TO_TICKS(50)); // Nghỉ 50ms để nhường CPU cho Task khác
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
