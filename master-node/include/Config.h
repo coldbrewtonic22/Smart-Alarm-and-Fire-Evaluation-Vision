@@ -76,6 +76,7 @@ enum AlertState {
 #define ADDR_MODE       224   // 1 byte   (Auto/Manual)
 #define ADDR_THRESH_H   225   // 1 byte   (Threshold High)
 #define ADDR_THRESH_L   226   // 1 byte   (Threshold Low)
+#define ADDR_PIN        227   // 4 bytes (227-230) - PIN
 
 // 6. SYSTEM INFO
 
