@@ -2,6 +2,7 @@
 #define CAMERA_MANAGER_H
 
 #include <Arduino.h>
+
 #include "esp_camera.h"
 #include "Config.h"
 
@@ -16,6 +17,12 @@ public:
     
     // Clear the old buffer (to avoid retrieving stale images)
     void clearBuffer();
+
+    // Capture an image and return the frame buffer pointer
+    camera_fb_t* capture();
+    
+    // Release memory after image processing is complete
+    void freeFrame(camera_fb_t* fb);
 };
 
 #endif

@@ -3,14 +3,14 @@
 
 #include <Arduino.h>
 
-// 1. PIN DEFINITIONS (ESP32-CAM AI-THINKER)
+// --- PIN DEFINITIONS (ESP32-CAM AI-THINKER) ---
 
 #define PIN_UART1_RX      12 
 #define PIN_UART1_TX      13 
 
 #define FLASH_PIN          4 
 
-// Sơ đồ chân Camera chuẩn AI-THINKER
+// Standard AI-Thinker camera pin mapping
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
@@ -28,13 +28,11 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// 2. CLOUD CONFIGURATIONS
+// --- CLOUD CONFIGURATIONS ---
 
-#define TG_TOKEN        "8482773700:AAEHaS262jfhuiuB-lnwhSgD6TQZ41iv4yM"
-#define TG_CHAT_ID      "7257541474"
 #define AWS_API_URL     "https://4249qf98qj.execute-api.ap-southeast-1.amazonaws.com/default/LuuAnhBaoChay"
 
-// 3. SYSTEM CONSTANTS
+// --- SYSTEM CONSTANTS ---
 
 #define COOLDOWN_TIME     15000 
 

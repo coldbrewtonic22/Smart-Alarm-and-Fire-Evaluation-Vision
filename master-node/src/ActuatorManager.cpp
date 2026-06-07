@@ -16,9 +16,16 @@ void ActuatorManager::begin() {
     digitalWrite(PIN_BUZZER,     LOW);
     digitalWrite(PIN_LED,        LOW);
 
+    // Force the use of a dedicated timer to avoid PWM conflicts between ESP32Servo and other peripherals
+    ESP32PWM::allocateTimer(0);
+    ESP32PWM::allocateTimer(1);
+    ESP32PWM::allocateTimer(2);
+    ESP32PWM::allocateTimer(3);
+
     // Init Servo
     doorServo.setPeriodHertz(50);
     doorServo.attach(PIN_SERVO, 500, 2400);
+
     controlDoor(false);
 }
 
@@ -28,11 +35,12 @@ void ActuatorManager::controlRelays(bool fanOn, bool pumpOn) {
 }
 
 void ActuatorManager::controlDoor(bool open) {
-    if (open) {
-        doorServo.write(SERVO_OPEN_ANGLE);
-    } 
-    else {
-        doorServo.write(SERVO_CLOSE_ANGLE);
+    // Update servo position only when the door state changes
+    if (isDoorInit || currentDoorState != open) {
+        doorServo.write(open ? SERVO_OPEN_ANGLE : SERVO_CLOSE_ANGLE);
+
+        currentDoorState = open;
+        isDoorInit = false;
     }
 }
 

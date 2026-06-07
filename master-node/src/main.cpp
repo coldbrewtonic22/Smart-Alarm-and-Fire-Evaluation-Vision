@@ -28,7 +28,7 @@ volatile int        g_gasValue        = 0;
 volatile bool       g_fireDetected    = false;
 volatile AlertState g_alertState      = STATE_SAFE;
  
-volatile int        g_relayState      = 0;   // 0 = off, 1 = fan, 2 = pump, 3 = both
+volatile int        g_relayState      = 0;                      // 0 = off, 1 = fan, 2 = pump, 3 = both
 volatile bool       g_doorOpen        = false;
 volatile SystemMode g_systemMode      = MODE_AUTO;
 volatile int        g_gasThreshold    = DEFAULT_GAS_THRESH;
@@ -42,17 +42,16 @@ volatile bool       g_wifiConnected   = false;
 volatile bool       g_startupComplete = false;   // Finish 60-seconds Warm-up
  
 // Blynk dirty-flag (avoid flood)
-volatile bool       g_dirty_gas       = false;
-volatile bool       g_dirty_fire      = false;
-volatile bool       g_dirty_relay     = false;
-volatile bool       g_dirty_door      = false;
-volatile bool       g_dirty_mode      = false;
-volatile bool       g_dirty_threshold = false;
-volatile bool       g_dirty_notify    = false;   // logEvent 1 time / event
-volatile AlertState g_lastNotified    = STATE_SAFE;
-
-// Auto switch back to AUTO
-volatile unsigned long g_deviceOffSince = 0;
+volatile bool          g_dirty_gas         = false;
+volatile bool          g_dirty_fire        = false;
+volatile bool          g_dirty_relay       = false;
+volatile bool          g_dirty_door        = false;
+volatile bool          g_dirty_mode        = false;
+volatile bool          g_dirty_threshold   = false;
+volatile bool          g_dirty_notify      = false;         // logEvent 1 time / event
+volatile bool          g_dirty_wifi_sync   = false;         // Data synchronization flag for Slave
+volatile AlertState    g_lastNotified      = STATE_SAFE;
+volatile unsigned long g_deviceOffSince    = 0;             // Auto switch back to AUTO
 
 // --- LCD OVERRIDE ---
 
@@ -64,6 +63,8 @@ String            g_lcdLine3         = "";
 String            g_pinDisplay       = "";
 bool              g_lcdOverrideFull  = false;
 unsigned long     g_lcdOverrideUntil = 0;
+
+String centerText(const String& text);
 
 // --- EEPROM's Credentials ---
 
@@ -101,8 +102,6 @@ void applyAlertToActuators(AlertState state);
 void setLCDOverrideRow3(const String& msg, unsigned long durationMs);
 void setLCDMenu(const String& l0, const String& l1, const String& l2, const String& l3, unsigned long durationMs);
 
-String centerText(const String& text);
-
 // --- BLYNK CALLBACKS ---
 
 // V1 - Relay control (Only MANUAL)
@@ -116,6 +115,7 @@ BLYNK_WRITE(RELAY_PIN)
     int state = param.asInt();
 
     g_relayState = state;
+    Serial.printf("[BLYNK] Manual Relay control: %d\n", state);
 
     actuators.controlRelays(state == 1 || state == 3, state == 2 || state == 3);
 
@@ -131,6 +131,7 @@ BLYNK_WRITE(SERVO_PIN)
     }
  
     g_doorOpen = (bool)param.asInt();
+    Serial.printf("[BLYNK] Manual Door control: %s\n", g_doorOpen ? "OPEN" : "CLOSE");
 
     actuators.controlDoor(g_doorOpen);
 
@@ -148,6 +149,7 @@ BLYNK_WRITE(THRESHOLD_PIN)
     }
 
     g_gasThreshold = value;
+    Serial.printf("[BLYNK] Gas Threshold changed to: %d PPM\n", value);
 
     EEPROM.write(ADDR_THRESH_H, value / 100);
     EEPROM.write(ADDR_THRESH_L, value % 100);
@@ -162,6 +164,7 @@ BLYNK_WRITE(THRESHOLD_PIN)
 BLYNK_WRITE(MODE_PIN)
 {
     g_systemMode = (param.asInt() == 1) ? MODE_AUTO : MODE_MANUAL;
+    Serial.printf("[BLYNK] System Mode changed to: %s\n", g_systemMode == MODE_AUTO ? "AUTO" : "MANUAL");
 
     EEPROM.write(ADDR_MODE, (uint8_t)g_systemMode);
     EEPROM.commit();
@@ -258,6 +261,10 @@ void setup()
     }
  
     connectToWiFiAndBlynk();    // Save before create Tasks
+
+    // Send initial configuration to the Slave node immediately after the Master finishes booting
+    Serial.println("\n[SYSTEM] Activating configuration sync (WiFi & Telegram) to ESP32-CAM...");
+    uart.sendWiFiConfig(g_ssid, g_password, g_botToken, g_chatId);
  
     // Create Tasks
     //                      Function        Name         Stack  Param  Prio Handle            Core
@@ -296,6 +303,7 @@ void connectToWiFiAndBlynk()
     delay(100);
  
     ui.showMessage(0, 2, "WiFi connecting... ", false);
+    Serial.printf("\n[WIFI] Connecting to SSID: %s\n", g_ssid.c_str());
     WiFi.begin(g_ssid.c_str(), g_password.c_str());
  
     int tries = 0;
@@ -321,6 +329,8 @@ void connectToWiFiAndBlynk()
     }
 
     g_wifiConnected = true;
+    Serial.print("[WIFI] Connected! IP Address: "); 
+    Serial.println(WiFi.localIP());
  
     char wifiBuf[21];
     snprintf(wifiBuf, sizeof(wifiBuf), "WiFi OK: %-11s", g_ssid.substring(0, 11).c_str());
@@ -342,11 +352,12 @@ void connectToWiFiAndBlynk()
     if (ok) 
     {
         g_blynkConnected = true;
-
+        Serial.println("[BLYNK] Connected to Blynk Cloud successfully!");
         ui.showMessage(0, 3, "  Blynk: Connected  ", false);
     } 
     else 
     {
+        Serial.println("[BLYNK] Connection to Blynk Cloud FAILED!");
         ui.showMessage(0, 3, "   Blynk: FAILED!   ", false);
     }
 
@@ -428,6 +439,8 @@ void applyAlertToActuators(AlertState state)
 
 void runHardwareTest() 
 {
+    Serial.println("\n[SYSTEM] Initiating Hardware Self-Test...");
+    
     setLCDMenu(centerText("HARDWARE TEST"), centerText("Testing Buzzer..."), "", "", 2000);
     actuators.handleBuzzer(true); vTaskDelay(pdMS_TO_TICKS(1000)); actuators.handleBuzzer(false);
 
@@ -503,6 +516,26 @@ void Task_Safety(void* pv)
  
         bool stateChanged = (newState != g_alertState);
         g_alertState      = newState;
+
+        if (stateChanged) 
+        {
+            const char* stateName = "SAFE";
+
+            if (newState == STATE_GAS_ONLY) 
+            {
+                stateName = "GAS WARNING";
+            }
+            else if (newState == STATE_FIRE_ONLY) 
+            {
+                stateName = "FIRE WARNING";
+            }
+            else if (newState == STATE_EMERGENCY) 
+            {
+                stateName = "EMERGENCY (GAS + FIRE)";
+            }
+
+            Serial.printf("\n[SAFETY] Alert State Changed: %s\n", stateName);
+        }
  
         // 4. AUTO Mode → control devices immediately
         if (g_systemMode == MODE_AUTO) 
@@ -549,6 +582,7 @@ void Task_Safety(void* pv)
                 } 
                 else if (millis() - g_deviceOffSince >= 5000) 
                 {
+                    Serial.println("[SAFETY] Inactivity detected! Auto-fallback to AUTO mode.");
                     g_systemMode = MODE_AUTO;
                     g_deviceOffSince = 0;
 
@@ -665,95 +699,91 @@ void Task_Keypad(void* pv)
             }
         }
 
-        if (kMode == KM_IDLE) 
+        if (kMode == KM_IDLE || kMode == KM_MENU) 
         {
             if (key == '*') 
             {
-                kMode = KM_MENU;
+                if (kMode == KM_IDLE) 
+                {
+                    kMode = KM_MENU;
+                    menuStartTime = millis();
+
+                    setLCDMenu("A: System Info      ",
+                               "B: Hardware Test    ", 
+                               "C: S.O.S Button     ", 
+                               "D: Change PIN       ", 10000);
+                } 
+                else 
+                {
+                    // Press '*' to exit the Menu and return to the main screen
+                    kMode = KM_IDLE;
+
+                    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
+                    {
+                        g_lcdOverrideUntil = 0; 
+                        xSemaphoreGive(g_lcdMutex);
+                    }
+                }
+            }
+            else if (key == 'A')
+            {
+                kMode = KM_INFO;
                 menuStartTime = millis();
 
-                setLCDMenu(centerText("A: System Info"),
-                           centerText("B: Hardware Test"), 
-                           centerText("C: S.O.S Button"), 
-                           centerText("D: Change PIN"), 10000);
+                String r0 = "D23 - IoT - Group 15";
+                String r1 = "ESP32 - 192.168.4.1";
+                String r2 = g_blynkConnected ? "Blynk: Connected" : "Blynk: Disconnected";
+                String r3 = (g_botToken.length() > 0) ? "Tele: Connected" : "Tele: Disconnected";
+                
+                setLCDMenu(centerText(r0), centerText(r1), centerText(r2), centerText(r3), 10000);
             }
-        }
-        else if (kMode == KM_MENU)
-        {
-            switch (key) 
+            else if (key == 'B')
             {
-                // Display system information
-                case 'A':   
-                    kMode = KM_INFO;
+                kMode = KM_IDLE;
 
+                if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
+                {
+                    g_lcdOverrideUntil = 0; 
+                    xSemaphoreGive(g_lcdMutex);
+                }
+
+                runHardwareTest();
+            }
+            else if (key == 'C')
+            {
+                Serial.println("\n[KEYPAD] S.O.S BUTTON PRESSED! Triggering emergency protocol!");
+                
+                g_sosActive = true; 
+                kMode = KM_IDLE;
+
+                if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
+                {
+                    g_lcdOverrideUntil = 0; 
+                    xSemaphoreGive(g_lcdMutex);
+                }
+            }
+            else if (key == 'D')
+            {
+                if (g_alertState == STATE_SAFE) 
+                {
+                    kMode = KM_OLD_PIN; 
+                    input = "";
+
+                    setLCDOverrideRow3("Old PIN: ", 10000);
+                } 
+                else 
+                {
+                    setLCDOverrideRow3(centerText("Alert Active!"), 2000);
+                    kMode = KM_IDLE;
+                }
+            }
+            else 
+            {
+                // Reset the Menu timeout on any key press
+                if (kMode == KM_MENU)
+                {
                     menuStartTime = millis();
-                    {
-                        String r0 = "D23 - IoT - Group 15";
-                        String r1 = "ESP32 - 192.168.4.1";
-                        String r2 = g_blynkConnected ? "Blynk: Connected" : "Blynk: Disconnected";
-                        String r3 = (g_botToken.length() > 0) ? "Tele: Connected" : "Tele: Disconnected";
-                        setLCDMenu(centerText(r0), centerText(r1), centerText(r2), centerText(r3), 10000);
-                    }
-
-                    break;
-
-                // Run the hardware self-test
-                case 'B':
-                    kMode = KM_IDLE;
-
-                    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
-                    {
-                        g_lcdOverrideUntil = 0; 
-                        xSemaphoreGive(g_lcdMutex);
-                    }
-
-                    runHardwareTest();
-
-                    break;
-
-                // Activate S.O.S mode
-                case 'C':
-                    g_sosActive = true; 
-                    kMode = KM_IDLE;
-
-                    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
-                    {
-                        g_lcdOverrideUntil = 0; 
-                        xSemaphoreGive(g_lcdMutex);
-                    }
-
-                    break;
-
-                // Change PIN
-                case 'D':
-                    if (g_alertState == STATE_SAFE) 
-                    {
-                        kMode = KM_OLD_PIN; 
-                        input = "";
-                        setLCDOverrideRow3("Old PIN: ", 10000);
-                    } 
-                    else 
-                    {
-                        setLCDOverrideRow3(centerText("Alert Active!"), 2000);
-                        kMode = KM_IDLE;
-                    }
-
-                    break;
-
-                case '*':
-                    kMode = KM_IDLE;
-
-                    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
-                    {
-                        g_lcdOverrideUntil = 0; 
-                        xSemaphoreGive(g_lcdMutex);
-                    }
-
-                    break;
-
-                default:
-                    menuStartTime = millis(); 
-                    break;
+                }  
             }
         }
         else if (kMode == KM_OLD_PIN)
@@ -814,7 +844,7 @@ void Task_Keypad(void* pv)
                     }
 
                     EEPROM.commit();
-
+                    Serial.println("[KEYPAD] Security PIN successfully changed and saved to EEPROM.");
                     setLCDOverrideRow3(centerText("PIN Changed!"), 2000);
                 } 
                 else 
@@ -862,6 +892,7 @@ void Task_Keypad(void* pv)
                     g_userSilenced = true;
                     g_sosActive    = false;
 
+                    Serial.println("[KEYPAD] Correct PIN entered. System silenced and SOS cleared.");
                     setLCDOverrideRow3(centerText("Buzzer Silenced!"), 2000);
                 } 
                 else 
@@ -979,8 +1010,21 @@ void Task_LCD(void* pv)
             String r2 = "Door: OPEN Relay: " + String(g_relayState);
             String r3 = "Enter Pin: " + currentPinDisplay;
             
-            snprintf(row0, sizeof(row0), "%s", centerText(alertTitle).c_str());
-            snprintf(row1, sizeof(row1), "%s", centerText(alertDesc).c_str());
+            // Blink effect for the first 2 rows (toggle every 500 ms)
+            bool blinkState = (millis() / 500) % 2 == 0;
+            
+            if (blinkState) 
+            {
+                snprintf(row0, sizeof(row0), "%s", centerText(alertTitle).c_str());
+                snprintf(row1, sizeof(row1), "%s", centerText(alertDesc).c_str());
+            } 
+            else 
+            {
+                // When off, display blank spaces to create a blinking effect
+                snprintf(row0, sizeof(row0), "%s", centerText("").c_str());
+                snprintf(row1, sizeof(row1), "%s", centerText("").c_str());
+            }
+
             snprintf(row2, sizeof(row2), "%s", centerText(r2).c_str());
             snprintf(row3, sizeof(row3), "%-20s", r3.c_str());
         }
@@ -993,14 +1037,14 @@ void Task_LCD(void* pv)
         }
         else 
         {
-            snprintf(row0, sizeof(row0), "GAS:%-4d PPM  FIRE:%d", (int)g_gasValue, g_fireDetected ? 1 : 0);
+            snprintf(row0, sizeof(row0), "GAS: %-4dPPM FIRE: %d", (int)g_gasValue, g_fireDetected ? 1 : 0);
             
             String doorStr = g_doorOpen ? "OPEN " : "CLOSE";
-            snprintf(row1, sizeof(row1), "RELAY:%d   DOOR:%s", (int)g_relayState, doorStr.c_str());
+            snprintf(row1, sizeof(row1), "RELAY: %d DOOR: %s", (int)g_relayState, doorStr.c_str());
             
             String wifiStr = g_wifiConnected ? "ON " : "OFF";
             String modeStr = (g_systemMode == MODE_AUTO) ? "AUTO  " : "MANUAL";
-            snprintf(row2, sizeof(row2), "WIFI:%s MODE:%s", wifiStr.c_str(), modeStr.c_str());
+            snprintf(row2, sizeof(row2), "WIFI: %s MODE: %s", wifiStr.c_str(), modeStr.c_str());
 
             if (hasOverride && !isFullOverride) 
             {
@@ -1028,7 +1072,16 @@ void Task_UART_CAM(void* pv)
  
     while (true) 
     {
-        // Read every byte from slave
+        // Check sync flag to resend the full configuration to the Slave
+        if (g_dirty_wifi_sync) 
+        {
+            Serial.println("[UART_TX] Requesting resynchronization of network & Cloud configuration to the Slave Node...");
+            uart.sendWiFiConfig(g_ssid, g_password, g_botToken, g_chatId);
+
+            g_dirty_wifi_sync = false;
+        }
+
+        // Read bytes from the Slave one by one
         while (Serial2.available()) 
         {
             char c = (char)Serial2.read();
@@ -1045,9 +1098,10 @@ void Task_UART_CAM(void* pv)
  
                         if (strcmp(cmd, "HEARTBEAT") == 0) 
                         {
-                            // Slave alive → send the current status
-                            const char* type = "";
+                            // Log status to confirm the Slave is alive and connection is stable
+                            Serial.println("[UART_RX] Heartbeat received from Slave. Responding with current status...");
 
+                            const char* type = "";
                             switch ((AlertState)g_alertState) 
                             {
                                 case STATE_GAS_ONLY:  type = "GAS";       break;
@@ -1069,28 +1123,45 @@ void Task_UART_CAM(void* pv)
             }
         }
  
-        // Detect changes in AlertState → immediately push updates to the slave
+        // Detect alarm state changes → immediately send update to Slave
         AlertState cur = (AlertState)g_alertState;
 
         if (cur != lastSentAlert) 
         {
             if (cur == STATE_SAFE) 
             {
+                Serial.println("[UART_TX] Sending SAFE command to Slave Node.");
                 uart.sendStatus("SAFE", "", (int)g_gasValue);
             } 
             else 
             {
                 const char* type = "";
-                if (cur == STATE_GAS_ONLY)       type = "GAS";
-                else if (cur == STATE_FIRE_ONLY) type = "FIRE";
-                else if (cur == STATE_EMERGENCY) type = "EMERGENCY";
                 
+                if (cur == STATE_GAS_ONLY)
+                {
+                    type = "GAS";
+                }
+                else if (cur == STATE_FIRE_ONLY) 
+                {
+                    type = "FIRE";
+                }
+                else if (cur == STATE_EMERGENCY) 
+                {
+                    type = "EMERGENCY";
+                }
+                
+                Serial.printf("[UART_TX] Sending ALERT command (%s) to Slave Node...\n", type);
                 uart.sendStatus("ALERT", type, (int)g_gasValue);
                 
-                // Only request image capture if Telegram has been configured
+                // Only request image capture if the user has configured Telegram
                 if (g_botToken.length() > 0) 
                 {
+                    Serial.println("[UART_TX] Sending SNAPSHOT command to Slave Node...");
                     uart.sendSnapshotRequest();   
+                } 
+                else 
+                {
+                    Serial.println("[UART_TX] Skipping SNAPSHOT due to missing Telegram configuration.");
                 }
             }
  

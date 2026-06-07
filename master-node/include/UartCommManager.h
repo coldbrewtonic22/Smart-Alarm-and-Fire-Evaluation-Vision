@@ -17,7 +17,7 @@ public:
     
     void sendSnapshotRequest();
 
-    void sendWiFiConfig(String ssid, String pass);
+    void sendWiFiConfig(String ssid, String pass, String botToken, String chatId);
 };
 
 #endif 

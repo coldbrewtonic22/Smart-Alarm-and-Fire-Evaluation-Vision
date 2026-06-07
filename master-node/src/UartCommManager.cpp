@@ -35,11 +35,15 @@ void UartCommManager::sendSnapshotRequest() {
     Serial2.println();
 }
 
-void UartCommManager::sendWiFiConfig(String ssid, String pass) {
+void UartCommManager::sendWiFiConfig(String ssid, String pass, String botToken, String chatId) {
     JsonDocument doc;
     doc["cmd"] = "WIFI";
     doc["ssid"] = ssid;
     doc["pass"] = pass;
+    doc["bot_token"] = botToken;
+    doc["chat_id"] = chatId;
+    
     serializeJson(doc, Serial2);
+    
     Serial2.println();
 }

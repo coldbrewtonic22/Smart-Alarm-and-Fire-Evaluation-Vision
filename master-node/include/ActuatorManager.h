@@ -8,6 +8,9 @@
 class ActuatorManager {
 private:
     Servo doorServo;
+
+    bool currentDoorState;
+    bool isDoorInit;
     
     unsigned long lastBuzzerToggle;
     bool buzzerState;

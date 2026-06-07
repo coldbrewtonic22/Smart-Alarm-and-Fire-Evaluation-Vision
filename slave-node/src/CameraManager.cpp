@@ -29,9 +29,9 @@ bool CameraManager::begin() {
     config.pixel_format = PIXFORMAT_JPEG;
     
     // Configure image quality
-    config.frame_size = FRAMESIZE_VGA;  // Giữ nguyên VGA (640x480) để tốc độ truyền Telegram nhanh
-    config.jpeg_quality = 15;           // Tăng lên 15 (Số càng cao chất lượng càng thấp nhưng dung lượng file nhẹ, tránh tràn RAM)
-    config.fb_count = 1;                // Chỉ dùng 1 bộ đệm
+    config.frame_size = FRAMESIZE_VGA;  // Keep VGA resolution (640x480) for faster Telegram uploads
+    config.jpeg_quality = 15;           // Set to 15 (lower quality, smaller file size, reduced RAM usage)
+    config.fb_count = 1;                // Use a single frame buffer
 
     esp_err_t err = esp_camera_init(&config);
 
@@ -53,7 +53,20 @@ void CameraManager::setFlash(bool on) {
 void CameraManager::clearBuffer() {
     // Call the image capture function and immediately return it to refresh the frame buffer
     camera_fb_t* fb = esp_camera_fb_get(); 
+
     if (fb) {
         esp_camera_fb_return(fb); 
+    }
+}
+
+// Wrapper for the Espressif image capture command
+camera_fb_t* CameraManager::capture() {
+    return esp_camera_fb_get();
+}
+
+// Wrapper for the memory release operation
+void CameraManager::freeFrame(camera_fb_t* fb) {
+    if (fb) {
+        esp_camera_fb_return(fb);
     }
 }
