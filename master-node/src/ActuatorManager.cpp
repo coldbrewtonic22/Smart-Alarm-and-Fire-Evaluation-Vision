@@ -15,13 +15,7 @@ void ActuatorManager::begin() {
     digitalWrite(PIN_RELAY_PUMP, LOW);
     digitalWrite(PIN_BUZZER,     LOW);
     digitalWrite(PIN_LED,        LOW);
-
-    // Force the use of a dedicated timer to avoid PWM conflicts between ESP32Servo and other peripherals
-    ESP32PWM::allocateTimer(0);
-    ESP32PWM::allocateTimer(1);
-    ESP32PWM::allocateTimer(2);
-    ESP32PWM::allocateTimer(3);
-
+    
     // Init Servo
     doorServo.setPeriodHertz(50);
     doorServo.attach(PIN_SERVO, 500, 2400);

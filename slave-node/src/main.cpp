@@ -55,8 +55,8 @@ void connectWiFi(const char* ssid, const char* pass)
     while (WiFi.status() != WL_CONNECTED && attempts < 20) 
     {
         delay(500);
-
         Serial.print(".");
+
         attempts++;
     }
     
@@ -65,6 +65,7 @@ void connectWiFi(const char* ssid, const char* pass)
         Serial.println("\n[INFO] WiFi Connected!");
         Serial.print("[INFO] IP Address: ");
         Serial.println(WiFi.localIP());
+
         isWifiConnected = true;
         
         // Double-blink the flash LED to indicate a successful connection
@@ -86,12 +87,10 @@ void handleCapture(String caption)
     if (millis() - lastCaptureTime < COOLDOWN_TIME) 
     {
         Serial.println("[WARN] In cooldown period (15s). Skipping continuous capture request.");
-        
         return;
     }
 
     Serial.println("[INFO] Starting image capture (No Flash)...");
-    
     
     cameraManager.clearBuffer();                    // Discard old frame
     camera_fb_t* fb = cameraManager.capture();  
@@ -132,8 +131,8 @@ void setup()
     Serial1.begin(115200, SERIAL_8N1, 13, 12);
     
     Serial.println("\n=================================");
-    Serial.println("   SLAVE NODE (ESP32-CAM) INITIALIZED");
-    Serial.println("=================================");
+    Serial.println("SLAVE NODE (ESP32-CAM) INITIALIZED");
+    Serial.println("=================================\n");
 
     if (!cameraManager.begin()) 
     {

@@ -80,7 +80,7 @@ enum AlertState {
 
 // 6. SYSTEM INFO
 
-#define GROUP_NAME      "ESPecially-Talented"
+#define GROUP_NAME      "ESP-ecially Talented"
 #define CLASS_ID        "D23CQCI01-N"
 
 // 7. BLYNK CLOUD CONFIGURATION

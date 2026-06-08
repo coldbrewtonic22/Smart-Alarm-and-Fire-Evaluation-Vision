@@ -1,5 +1,3 @@
-#define BLYNK_PRINT Serial
-
 #include "Config.h"
 
 #include <WiFi.h>
@@ -24,22 +22,22 @@ WifiConfigManager wifiMgr;
 
 // --- SHARED STATE ---
 
-volatile int        g_gasValue        = 0;
-volatile bool       g_fireDetected    = false;
-volatile AlertState g_alertState      = STATE_SAFE;
+volatile int           g_gasValue        = 0;
+volatile bool          g_fireDetected    = false;
+volatile AlertState    g_alertState      = STATE_SAFE;
  
-volatile int        g_relayState      = 0;                      // 0 = off, 1 = fan, 2 = pump, 3 = both
-volatile bool       g_doorOpen        = false;
-volatile SystemMode g_systemMode      = MODE_AUTO;
-volatile int        g_gasThreshold    = DEFAULT_GAS_THRESH;
+volatile int           g_relayState      = 0;                      // 0 = off, 1 = fan, 2 = pump, 3 = both
+volatile bool          g_doorOpen        = false;
+volatile SystemMode    g_systemMode      = MODE_AUTO;
+volatile int           g_gasThreshold    = DEFAULT_GAS_THRESH;
  
-volatile bool       g_buzzerActive    = false;
-volatile bool       g_userSilenced    = false;   // Keypad PIN → OFF Buzzer
-volatile bool       g_sosActive       = false;   // S.O.S (Panic Button)
+volatile bool          g_buzzerActive    = false;
+volatile bool          g_userSilenced    = false;   // Keypad PIN → OFF Buzzer
+volatile bool          g_sosActive       = false;   // S.O.S (Panic Button)
  
-volatile bool       g_blynkConnected  = false;
-volatile bool       g_wifiConnected   = false;
-volatile bool       g_startupComplete = false;   // Finish 60-seconds Warm-up
+volatile bool          g_blynkConnected  = false;
+volatile bool          g_wifiConnected   = false;
+volatile bool          g_startupComplete = false;   // Finish 60-seconds Warm-up
  
 // Blynk dirty-flag (avoid flood)
 volatile bool          g_dirty_gas         = false;
@@ -131,11 +129,10 @@ BLYNK_WRITE(SERVO_PIN)
     }
  
     g_doorOpen = (bool)param.asInt();
-    Serial.printf("[BLYNK] Manual Door control: %s\n", g_doorOpen ? "OPEN" : "CLOSE");
-
     actuators.controlDoor(g_doorOpen);
-
+    
     g_dirty_door = false;
+    Serial.printf("[BLYNK] Manual Door control: %s\n", g_doorOpen ? "OPEN" : "CLOSE");
 }
 
 // V3 - Threshold
@@ -149,12 +146,12 @@ BLYNK_WRITE(THRESHOLD_PIN)
     }
 
     g_gasThreshold = value;
-    Serial.printf("[BLYNK] Gas Threshold changed to: %d PPM\n", value);
-
+    
     EEPROM.write(ADDR_THRESH_H, value / 100);
     EEPROM.write(ADDR_THRESH_L, value % 100);
     EEPROM.commit();
- 
+
+    Serial.printf("[BLYNK] Gas Threshold changed to: %d PPM\n", value);
     setLCDOverrideRow3("Saved: " + String(value) + " PPM", 2000);
 
     g_dirty_threshold = false;
@@ -164,11 +161,12 @@ BLYNK_WRITE(THRESHOLD_PIN)
 BLYNK_WRITE(MODE_PIN)
 {
     g_systemMode = (param.asInt() == 1) ? MODE_AUTO : MODE_MANUAL;
-    Serial.printf("[BLYNK] System Mode changed to: %s\n", g_systemMode == MODE_AUTO ? "AUTO" : "MANUAL");
-
+    
     EEPROM.write(ADDR_MODE, (uint8_t)g_systemMode);
     EEPROM.commit();
- 
+
+    Serial.printf("[BLYNK] System Mode changed to: %s\n", g_systemMode == MODE_AUTO ? "AUTO" : "MANUAL");
+    
     g_deviceOffSince = 0;
     g_dirty_mode = false;
 }
@@ -211,7 +209,6 @@ void updatePinDisplay(String stars)
 void setup()
 {
     Serial.begin(SERIAL_DEBUG_BAUD);
- 
     EEPROM.begin(EEPROM_SIZE);
  
     // Create mutex for LCD override
@@ -632,71 +629,39 @@ void Task_Keypad(void* pv)
             continue;
         }
 
-        // 10-second timeout for automatically exiting both the Menu and System Info screens
+        // Auto-exit the Menu and Info screens after 10 seconds of inactivity
         if ((kMode == KM_MENU || kMode == KM_INFO) && (millis() - menuStartTime > 10000)) 
         {
             kMode = KM_IDLE;
-
+            
             if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
             {
                 g_lcdOverrideUntil = 0;
                 xSemaphoreGive(g_lcdMutex);
             }
         }
- 
-        char key = ui.getPressedKey();
 
-        if (key == '\0') 
+        // Passively enter the emergency state without consuming the 'key' event
+        if (g_alertState != STATE_SAFE && !g_userSilenced && kMode != KM_PIN) 
         {
-            vTaskDelay(pdMS_TO_TICKS(50));
-            continue;
-        }
-
-        // Allow pressing '*' to exit the Info screen immediately without waiting 10 seconds
-        if (key == '*' && kMode == KM_INFO) 
-        {
-            kMode = KM_IDLE;
+            kMode = KM_PIN; 
+            input = "";
+            
+            // Clear the previous display contents
+            updatePinDisplay("");
 
             if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
             {
                 g_lcdOverrideUntil = 0; 
                 xSemaphoreGive(g_lcdMutex);
             }
-
-            continue;
         }
-
-        if (g_alertState != STATE_SAFE && !g_userSilenced) 
+ 
+        char key = ui.getPressedKey();
+        if (key == '\0') 
         {
-            if (kMode != KM_PIN) 
-            {
-                kMode = KM_PIN; 
-                input = "";
-                updatePinDisplay("");
-
-                // Dismiss the Menu display to make room for the Alert screen
-                if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
-                {
-                    g_lcdOverrideUntil = 0; 
-                    xSemaphoreGive(g_lcdMutex);
-                }
-
-                if (key >= '0' && key <= '9') 
-                {
-                    input += key; 
-                }
-                
-                String stars = "";
-
-                for (int i = 0; i < input.length(); i++)
-                {
-                    stars += "*";
-                }
-
-                setLCDOverrideRow3("PIN: " + stars, 8000);
-
-                continue; 
-            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
         }
 
         if (kMode == KM_IDLE || kMode == KM_MENU) 
@@ -715,11 +680,9 @@ void Task_Keypad(void* pv)
                 } 
                 else 
                 {
-                    // Press '*' to exit the Menu and return to the main screen
                     kMode = KM_IDLE;
 
-                    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) 
-                    {
+                    if (xSemaphoreTake(g_lcdMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                         g_lcdOverrideUntil = 0; 
                         xSemaphoreGive(g_lcdMutex);
                     }
@@ -774,16 +737,16 @@ void Task_Keypad(void* pv)
                 else 
                 {
                     setLCDOverrideRow3(centerText("Alert Active!"), 2000);
+
                     kMode = KM_IDLE;
                 }
             }
             else 
             {
-                // Reset the Menu timeout on any key press
-                if (kMode == KM_MENU)
+                if (kMode == KM_MENU) 
                 {
-                    menuStartTime = millis();
-                }  
+                    menuStartTime = millis(); 
+                }
             }
         }
         else if (kMode == KM_OLD_PIN)
@@ -791,14 +754,7 @@ void Task_Keypad(void* pv)
             if (key >= '0' && key <= '9' && input.length() < 4) 
             {
                 input += key;
-                String stars = "";
-
-                for (int i = 0; i < input.length(); i++) 
-                {
-                    stars += "*";
-                }
-                
-                setLCDOverrideRow3("Old PIN: " + stars, 10000);
+                setLCDOverrideRow3("Old PIN: " + input, 10000);
             } 
             else if (key == '#') 
             {
@@ -819,10 +775,18 @@ void Task_Keypad(void* pv)
             } 
             else if (key == '*') 
             {
-                input = ""; 
-                kMode = KM_IDLE;
+                // Smart backspace support for Old PIN input
+                if (input.length() > 0) 
+                {
+                    input.remove(input.length() - 1);
+                    setLCDOverrideRow3("Old PIN: " + input, 10000);
+                } 
+                else 
+                {
+                    kMode = KM_IDLE;
 
-                setLCDOverrideRow3(centerText("Cancelled"), 1000);
+                    setLCDOverrideRow3(centerText("Cancelled"), 1000);
+                }
             }
         }
         else if (kMode == KM_NEW_PIN)
@@ -830,7 +794,7 @@ void Task_Keypad(void* pv)
             if (key >= '0' && key <= '9' && input.length() < 4) 
             {
                 input += key;
-                setLCDOverrideRow3("New PIN: " + input, 10000); // Display the number for user confirmation
+                setLCDOverrideRow3("New PIN: " + input, 10000);
             } 
             else if (key == '#') 
             {
@@ -842,9 +806,10 @@ void Task_Keypad(void* pv)
                     {
                         EEPROM.write(ADDR_PIN + i, input[i]);
                     }
-
                     EEPROM.commit();
+
                     Serial.println("[KEYPAD] Security PIN successfully changed and saved to EEPROM.");
+                    
                     setLCDOverrideRow3(centerText("PIN Changed!"), 2000);
                 } 
                 else 
@@ -857,10 +822,18 @@ void Task_Keypad(void* pv)
             } 
             else if (key == '*') 
             {
-                input = ""; 
-                kMode = KM_IDLE;
+                // Smart backspace support for New PIN input
+                if (input.length() > 0) 
+                {
+                    input.remove(input.length() - 1);
+                    setLCDOverrideRow3("New PIN: " + input, 10000);
+                } 
+                else 
+                {
+                    kMode = KM_IDLE;
 
-                setLCDOverrideRow3(centerText("Cancelled"), 1000);
+                    setLCDOverrideRow3(centerText("Cancelled"), 1000);
+                }
             }
         }
         else if (kMode == KM_PIN) 
@@ -868,20 +841,14 @@ void Task_Keypad(void* pv)
             if (key >= '0' && key <= '9' && input.length() < 4) 
             {
                 input += key;
-                String stars = "";
-
-                for (int i = 0; i < input.length(); i++) 
-                {
-                    stars += "*";
-                }
 
                 if (g_alertState != STATE_SAFE && !g_userSilenced) 
                 {
-                    updatePinDisplay(stars);
+                    updatePinDisplay(input); 
                 } 
                 else 
                 {
-                    setLCDOverrideRow3("PIN: " + stars, 8000); 
+                    setLCDOverrideRow3("PIN: " + input, 8000); 
                 }
             }
             else if (key == '#') 
@@ -893,26 +860,42 @@ void Task_Keypad(void* pv)
                     g_sosActive    = false;
 
                     Serial.println("[KEYPAD] Correct PIN entered. System silenced and SOS cleared.");
+                    
                     setLCDOverrideRow3(centerText("Buzzer Silenced!"), 2000);
                 } 
                 else 
                 {
                     setLCDOverrideRow3(centerText("Wrong PIN!"), 2000);
                 }
-
                 input = ""; 
                 kMode = KM_IDLE; 
+                
                 updatePinDisplay("");
             } 
             else if (key == '*') 
             {
-                input = ""; 
-                kMode = KM_IDLE; 
-                updatePinDisplay("");
-
-                if (g_alertState == STATE_SAFE || g_userSilenced) 
+                // Smart backspace support for the alarm disable screen
+                if (input.length() > 0) 
                 {
-                    setLCDOverrideRow3(centerText("Cancelled"), 1000);
+                    input.remove(input.length() - 1);
+
+                    if (g_alertState != STATE_SAFE && !g_userSilenced) 
+                    {
+                        updatePinDisplay(input);
+                    } 
+                    else 
+                    {
+                        setLCDOverrideRow3("PIN: " + input, 8000);
+                    }
+                } 
+                else 
+                {
+                    // Prevent exit while a critical alarm is active
+                    if (g_alertState == STATE_SAFE || g_userSilenced) 
+                    {
+                        kMode = KM_IDLE;
+                        setLCDOverrideRow3(centerText("Cancelled"), 1000);
+                    }
                 }
             }
         }
