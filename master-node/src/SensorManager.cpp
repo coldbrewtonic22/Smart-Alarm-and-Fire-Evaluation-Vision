@@ -12,7 +12,13 @@ void SensorManager::begin() {
 }
 
 void SensorManager::readSensors() {
-    float rawMQ2 = analogRead(PIN_MQ2);
+    float rawSum = 0;
+    for (int i = 0; i < 5; i++) {
+        rawSum += analogRead(PIN_MQ2);
+        delayMicroseconds(200);
+    }
+    float rawMQ2 = rawSum / 5.0f;
+    
     float filteredMQ2 = kalmanFilter.updateEstimate(rawMQ2);
     currentGasValue = map(filteredMQ2, 0, 4095, 0, 10000);
 

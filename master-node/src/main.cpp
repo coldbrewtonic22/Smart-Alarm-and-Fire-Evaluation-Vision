@@ -460,8 +460,9 @@ void runHardwareTest()
 
 void Task_Safety(void* pv)
 {
-    bool gasAbove = false;   // Hysteresis status
- 
+    bool gasAbove = false;      // Hysteresis status
+    int  gasConfirmCount = 0;   // Anti-spike: consecutive readings above threshold
+
     while (true) 
     {
         // 1. Read sensors
@@ -478,13 +479,18 @@ void Task_Safety(void* pv)
         g_fireDetected = fire;
         g_dirty_gas    = true;
  
-        // 2. Hysteresis gas
+        /* 2. Gas hysteresis + confirmation counter (ADC spike filtering)
+              gasAbove becomes true only when the gas level exceeds the threshold for at least 2 consecutive readings (2 × 500 ms = 1 second) */
         if (gas >= g_gasThreshold)
         {
-            gasAbove = true;
+            if (++gasConfirmCount >= 2)
+            {
+                gasAbove = true;
+            }
         }
         else if (gas < g_gasThreshold - GAS_HYSTERESIS)  
         {
+            gasConfirmCount = 0;
             gasAbove = false;
         }
  
@@ -620,6 +626,7 @@ void Task_Keypad(void* pv)
     String input = "";
 
     unsigned long menuStartTime = 0;
+    unsigned long lastKeyPressTime = 0;
  
     while (true) 
     {
@@ -663,6 +670,16 @@ void Task_Keypad(void* pv)
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
+
+        /* Software Rate Limiter algorithm (EMI noise & ghost key protection)
+           If 2 consecutive characters are detected within 300 ms, it is considered noise with high confidence */
+        if (millis() - lastKeyPressTime < 300) 
+        {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;   // Ignore the character and restart the loop from the beginning
+        }
+        
+        lastKeyPressTime = millis();    // Update the timestamp only for a valid key press
 
         if (kMode == KM_IDLE || kMode == KM_MENU) 
         {
