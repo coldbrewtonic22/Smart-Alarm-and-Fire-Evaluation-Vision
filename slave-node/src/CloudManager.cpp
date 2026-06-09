@@ -7,16 +7,28 @@ bool CloudManager::sendTelegramPhoto(camera_fb_t* fb, String caption, String bot
         return false;
     }
 
+    Serial.printf("[INFO] Telegram sendPhoto start, heap: %u\n", ESP.getFreeHeap());
+
+    IPAddress telegramIP;
+    if (!WiFi.hostByName("api.telegram.org", telegramIP)) {
+        Serial.println("[ERROR] DNS lookup failed for api.telegram.org");
+        return false;
+    }
+    Serial.print("[INFO] api.telegram.org resolved: ");
+    Serial.println(telegramIP);
+
     WiFiClientSecure client;
     client.setInsecure();   // Bypass SSL certificate verification (Required for microcontrollers)
+    client.setTimeout(20);
 
     Serial.println("[INFO] Connecting to Telegram API...");
 
-    if (!client.connect("api.telegram.org", 443)) {
-        Serial.println("[ERROR] Unable to connect to Telegram!");
-
+    if (!client.connect(telegramIP, 443)) {
+        Serial.println("[ERROR] Cannot connect to Telegram IP:443");
         return false;
     }
+
+    client.setHandshakeTimeout(10);
 
     String head = "--Boundary\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n" + chatId + 
                   "\r\n--Boundary\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n" + caption +
@@ -25,23 +37,32 @@ bool CloudManager::sendTelegramPhoto(camera_fb_t* fb, String caption, String bot
     
     uint32_t totalLen = head.length() + fb->len + tail.length();
     
-    client.println("POST /bot" + botToken + "/sendPhoto HTTP/1.1");
-    client.println("Host: api.telegram.org");
-    client.println("Content-Type: multipart/form-data; boundary=Boundary");
-    client.print("Content-Length: "); 
-    client.println(totalLen);
-    client.println();
+    // Gửi HTTP header
+    client.print("POST /bot" + botToken + "/sendPhoto HTTP/1.1\r\n");
+    client.print("Host: api.telegram.org\r\n");
+    client.print("Content-Type: multipart/form-data; boundary=Boundary\r\n");
+    client.print("Content-Length: " + String(totalLen) + "\r\n");
+    client.print("Connection: close\r\n\r\n");
     
     // Send data sequentially in chunks to avoid overflowing the ESP32 RAM
     client.print(head);
-    client.write(fb->buf, fb->len);
+
+    const size_t CHUNK = 1024;
+    size_t sent = 0;
+
+    while (sent < fb->len) {
+        size_t toSend = min((size_t)CHUNK, fb->len - sent);
+        client.write(fb->buf + sent, toSend);
+        sent += toSend;
+    }
+
     client.print(tail);
     
     // Wait for the Telegram server response before disconnecting
     unsigned long timeout = millis();
     while (client.connected() && !client.available()) {
-        if (millis() - timeout > 10000) {
-            Serial.println("[ERROR] Telegram timeout waiting for response!");
+        if (millis() - timeout > 15000) {
+            Serial.println("[ERROR] Telegram response timeout!");
             client.stop();
 
             return false;
@@ -54,10 +75,16 @@ bool CloudManager::sendTelegramPhoto(camera_fb_t* fb, String caption, String bot
     String response = client.readStringUntil('\n');
     Serial.println("[INFO] Telegram Response: " + response);
 
-    client.stop();
-    Serial.println("[INFO] Image sent to Telegram successfully!");
+    while (client.available()) {
+        client.read();
+    }
 
-    return true;
+    client.stop();
+    
+    bool ok = response.indexOf("200") >= 0;
+    Serial.printf("[INFO] Telegram result: %s\n", ok ? "OK" : "FAILED");
+
+    return ok;
 }
 
 bool CloudManager::sendAWS(camera_fb_t* fb) {
@@ -100,7 +127,7 @@ bool CloudManager::sendAWS(camera_fb_t* fb) {
         return (httpCode == HTTP_CODE_OK || httpCode == 200);
     } 
     else {
-        Serial.printf("[ERROR] Failed to send AWS POST request: %s\n", http.errorToString(httpCode).c_str());
+        Serial.printf("[ERROR] AWS POST failed: %s\n", http.errorToString(httpCode).c_str());
         
         return false;
     }

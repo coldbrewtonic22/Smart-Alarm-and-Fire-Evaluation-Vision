@@ -11,14 +11,17 @@ CameraManager cameraManager;
 CloudManager cloudManager;
 
 bool isWifiConnected = false;
-unsigned long lastCaptureTime = 0;
 unsigned long lastWifiCheckTime = 0;
+unsigned long lastCaptureTime = (unsigned long)(-COOLDOWN_TIME);
 
+// Store WiFi and Telegram configuration locally
 String localSSID = "";
 String localPASS = "";
-
 String localBotToken = "";
 String localChatId = "";
+
+// Static buffer for UART messages received from the Master
+String rxBuf = "";
 
 const int FLASH_LED_PIN = 4;
 
@@ -30,13 +33,14 @@ void blinkFlash(int times, int durationMs)
     for (int i = 0; i < times; i++) 
     {
         digitalWrite(FLASH_LED_PIN, HIGH); // Flash ON
+        
         delay(durationMs);
-        digitalWrite(FLASH_LED_PIN, LOW);  // Flash OFF
-
         if (times > 1) 
         {
             delay(durationMs);
         }
+        
+        digitalWrite(FLASH_LED_PIN, LOW);  // Flash OFF
     }
 }
 
@@ -47,17 +51,31 @@ void connectWiFi(const char* ssid, const char* pass)
     if (WiFi.status() == WL_CONNECTED) 
     {
         WiFi.disconnect();
+        delay(100);
     }
     
     WiFi.begin(ssid, pass);
     
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) 
+    // Non-blocking: process pending UART data while waiting for WiFi connection
+    unsigned long wifiStart = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 10000) 
     {
-        delay(500);
-        Serial.print(".");
+        while (Serial1.available() > 0) 
+        {
+            char c = (char)Serial1.read();
+            if (c == '\n') 
+            {
+                rxBuf.trim();
+                rxBuf = "";     // Discard mid-connection commands
+            } 
+            else if (rxBuf.length() < 1024) 
+            {
+                rxBuf += c;
+            }
+        }
 
-        attempts++;
+        delay(200);
+        Serial.print(".");
     }
     
     if (WiFi.status() == WL_CONNECTED) 
@@ -90,34 +108,88 @@ void handleCapture(String caption)
         return;
     }
 
-    Serial.println("[INFO] Starting image capture (No Flash)...");
-    
-    cameraManager.clearBuffer();                    // Discard old frame
-    camera_fb_t* fb = cameraManager.capture();  
+    Serial.printf("[DEBUG] BotToken len=%d, ChatId len=%d\n", localBotToken.length(), localChatId.length());
+    Serial.println("[INFO] Starting image capture...");
 
-    if (fb) 
-    {
-        Serial.println("[INFO] Sending photo to Cloud platforms...");
-        
-        // Check whether Telegram has been configured before sending
-        if (localBotToken.length() > 0 && localChatId.length() > 0) 
-        {
-            cloudManager.sendTelegramPhoto(fb, caption, localBotToken, localChatId);
-        } 
-        else 
-        {
-            Serial.println("[WARN] No Telegram Config. Skip sending to Telegram.");
-        }
-        
-        // Always send to AWS, as it is the system backend
-        cloudManager.sendAWS(fb);
-        
-        cameraManager.freeFrame(fb);
-    } 
-    else 
+    cameraManager.clearBuffer();
+    camera_fb_t* fb = cameraManager.capture();
+
+    if (!fb) 
     {
         Serial.println("[ERROR] Failed to capture image from camera!");
+        lastCaptureTime = millis();
+
+        return;
     }
+
+    Serial.printf("[DEBUG] Frame captured: %u bytes, heap free: %u\n", fb->len, ESP.getFreeHeap());
+
+    if (localBotToken.length() > 0 && localChatId.length() > 0)
+    {
+        Serial.println("[INFO] Testing Telegram connection with text message...");
+
+        bool canConnect = false;
+
+        WiFiClientSecure testClient;
+        testClient.setInsecure();
+        testClient.setTimeout(10);
+
+        if (testClient.connect("api.telegram.org", 443))
+        {
+            canConnect = true;
+
+            String req = "GET /bot" + localBotToken + "/sendMessage?chat_id=" + localChatId 
+                         + "&text=📷+Capturing+image...+please+wait HTTP/1.1\r\n"
+                         + "Host: api.telegram.org\r\n"
+                         + "Connection: close\r\n\r\n";
+            testClient.print(req);
+
+            unsigned long t = millis();
+            while (!testClient.available() && millis() - t < 5000) 
+            {
+                delay(10);
+            }
+
+            String resp = testClient.readStringUntil('\n');
+            Serial.println("[INFO] Test message response: " + resp);
+
+            while (testClient.available()) 
+            {
+                testClient.read();  // Drain
+            }
+            testClient.stop();
+
+            // Flush SSL buffer
+            delay(500);
+        }
+
+        if (canConnect)
+        {
+            Serial.println("[INFO] Sending photo to Telegram...");
+            bool tgOk = cloudManager.sendTelegramPhoto(fb, caption, localBotToken, localChatId);
+            Serial.printf("[INFO] Telegram photo result: %s | heap: %u\n", tgOk ? "OK" : "FAILED", ESP.getFreeHeap());
+
+            if (!tgOk) 
+            {
+                Serial.println("[WARN] Photo failed, retrying after 3s...");
+
+                delay(3000);
+
+                tgOk = cloudManager.sendTelegramPhoto(fb, caption, localBotToken, localChatId);
+                Serial.printf("[INFO] Telegram retry result: %s\n", tgOk ? "OK" : "FAILED");
+            }
+        }
+    }
+    else
+    {
+        Serial.println("[WARN] No Telegram config (BotToken or ChatId empty). Skipping Telegram.");
+    }
+
+    Serial.println("[INFO] Sending photo to AWS...");
+    bool awsOk = cloudManager.sendAWS(fb);
+    Serial.printf("[INFO] AWS result: %s\n", awsOk ? "OK" : "FAILED");
+
+    cameraManager.freeFrame(fb);
 
     lastCaptureTime = millis();
 }
@@ -172,12 +244,6 @@ void loop()
             if (WiFi.status() == WL_CONNECTED) 
             {
                 Serial.println("[INFO] Reconnected to WiFi successfully!");
-
-                isWifiConnected = true;
-            } 
-            else 
-            {
-                isWifiConnected = false;
             }
         } 
         else 
@@ -207,15 +273,17 @@ void loop()
                     // 1. Receive WiFi and Telegram configuration data pushed from the Master
                     if (strcmp(cmd, "WIFI") == 0) 
                     {
-                        const char* ssid = doc["ssid"] | "";
-                        const char* pass = doc["pass"] | "";
+                        const char* ssid = doc["ssid"]      | "";
+                        const char* pass = doc["pass"]      | "";
                         const char* bot  = doc["bot_token"] | "";
-                        const char* chat = doc["chat_id"] | "";
+                        const char* chat = doc["chat_id"]   | "";
                         
                         localSSID     = String(ssid);
                         localPASS     = String(pass);
                         localBotToken = String(bot);
                         localChatId   = String(chat);
+                        
+                        Serial.printf("[INFO] Received WIFI config: SSID='%s', BotToken len=%d, ChatId len=%d\n", ssid, localBotToken.length(), localChatId.length());
                         
                         // Turn on Flash for 1 second to indicate successful command reception
                         blinkFlash(1, 1000);
@@ -225,30 +293,33 @@ void loop()
                     // 2. Process peripheral activation commands and capture images for Cloud upload
                     else 
                     {
-                        if (isWifiConnected) 
+                        if (strcmp(cmd, "SNAPSHOT") == 0) 
+                        {
+                            Serial.println("[INFO] Received SNAPSHOT command from Keypad!");
+
+                            if (WiFi.status() != WL_CONNECTED) 
+                            {
+                                Serial.println("[WARN] WiFi not connected - will capture but cannot send to Telegram/AWS!");
+                            }
+
+                            handleCapture("📸 *MANUAL CAPTURE FROM KEYPAD*");
+                        }
+                        else if (WiFi.status() == WL_CONNECTED)
                         {
                             if (strcmp(cmd, "ALERT") == 0) 
                             {
                                 const char* type = doc["type"] | "UNKNOWN";
                                 int gas = doc["gas"] | 0;
-                                
                                 String caption = "🚨 *ALERT DETECTED!* 🚨\n🔥 Type: " + String(type) + "\n💨 Gas concentration: " + String(gas) + " PPM";
+                                
                                 Serial.println("[ALERT] Received alert command from Master!");
+
                                 handleCapture(caption);
-                            }
-                            else if (strcmp(cmd, "SNAPSHOT") == 0) 
-                            {
-                                Serial.println("[INFO] Received manual capture command from Keypad!");
-                                handleCapture("📸 *MANUAL CAPTURE FROM KEYPAD*");
                             }
                             else if (strcmp(cmd, "SAFE") == 0) 
                             {
-                                // Heartbeat packet for connection keep-alive monitoring
+                                // Heartbeat - do nothing
                             }
-                        } 
-                        else 
-                        {
-                            Serial.println("[WARN] Received control command but Slave has NO WiFi connection!");
                         }
                     }
                 } 
@@ -261,7 +332,7 @@ void loop()
                 rxBuf = ""; 
             }
         } 
-        else if (rxBuf.length() < 512) 
+        else if (rxBuf.length() < 1024) 
         {
             rxBuf += c; 
         }

@@ -20,6 +20,8 @@ void ActuatorManager::begin() {
     doorServo.setPeriodHertz(50);
     doorServo.attach(PIN_SERVO, 500, 2400);
 
+    delay(100);
+
     controlDoor(false);
 }
 

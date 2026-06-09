@@ -93,7 +93,6 @@ void Task_Keypad   (void* pv);
 void Task_UART_CAM (void* pv);
 void Task_WebServer(void* pv);
 
-void runHardwareTest();
 void connectToWiFiAndBlynk();
 void updatePinDisplay(String stars);
 void applyAlertToActuators(AlertState state);
@@ -259,8 +258,10 @@ void setup()
  
     connectToWiFiAndBlynk();    // Save before create Tasks
 
-    // Send initial configuration to the Slave node immediately after the Master finishes booting
-    Serial.println("\n[SYSTEM] Activating configuration sync (WiFi & Telegram) to ESP32-CAM...");
+    Serial.println("[SYSTEM] Waiting 5s for CAM to boot...");
+    delay(5000);
+    
+    Serial.println("[SYSTEM] Sending WiFi config to CAM...");
     uart.sendWiFiConfig(g_ssid, g_password, g_botToken, g_chatId);
  
     // Create Tasks
@@ -434,30 +435,6 @@ void applyAlertToActuators(AlertState state)
     }
 }
 
-void runHardwareTest() 
-{
-    Serial.println("\n[SYSTEM] Initiating Hardware Self-Test...");
-    
-    setLCDMenu(centerText("HARDWARE TEST"), centerText("Testing Buzzer..."), "", "", 2000);
-    actuators.handleBuzzer(true); vTaskDelay(pdMS_TO_TICKS(1000)); actuators.handleBuzzer(false);
-
-    setLCDMenu(centerText("HARDWARE TEST"), centerText("Testing Relays..."), "", "", 2000);
-    actuators.controlRelays(true, true); vTaskDelay(pdMS_TO_TICKS(1000)); actuators.controlRelays(false, false);
-
-    setLCDMenu(centerText("HARDWARE TEST"), centerText("Testing Door..."), "", "", 2000);
-    actuators.controlDoor(true); vTaskDelay(pdMS_TO_TICKS(1000)); actuators.controlDoor(false);
-
-    setLCDMenu(centerText("HARDWARE TEST"), centerText("Testing Camera..."), "", "", 2000);
-    if (g_botToken.length() > 0) 
-    {
-        uart.sendSnapshotRequest();
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
-
-    setLCDMenu(centerText("HARDWARE TEST"), centerText("Test Completed!"), "", "", 2000);
-}
-
 void Task_Safety(void* pv)
 {
     bool gasAbove = false;      // Hysteresis status
@@ -480,10 +457,10 @@ void Task_Safety(void* pv)
         g_dirty_gas    = true;
  
         /* 2. Gas hysteresis + confirmation counter (ADC spike filtering)
-              gasAbove becomes true only when the gas level exceeds the threshold for at least 2 consecutive readings (2 × 500 ms = 1 second) */
+              gasAbove becomes true only when the gas level exceeds the threshold for at least 6 consecutive readings (6 × 500 ms = 3 seconds) */
         if (gas >= g_gasThreshold)
         {
-            if (++gasConfirmCount >= 2)
+            if (++gasConfirmCount >= 6)
             {
                 gasAbove = true;
             }
@@ -691,7 +668,7 @@ void Task_Keypad(void* pv)
                     menuStartTime = millis();
 
                     setLCDMenu("A: System Info      ",
-                               "B: Hardware Test    ", 
+                               "B: Force Snapshot   ", 
                                "C: S.O.S Button     ", 
                                "D: Change PIN       ", 10000);
                 } 
@@ -727,7 +704,11 @@ void Task_Keypad(void* pv)
                     xSemaphoreGive(g_lcdMutex);
                 }
 
-                runHardwareTest();
+                // Send an immediate snapshot request command to the Slave over UART
+                Serial.println("[KEYPAD] Force Snapshot triggered by User!");
+                uart.sendSnapshotRequest(); 
+                
+                setLCDOverrideRow3("  Snapshot Forced!  ", 2000);
             }
             else if (key == 'C')
             {
@@ -1110,7 +1091,14 @@ void Task_UART_CAM(void* pv)
                                 default:              type = "SAFE";      break;
                             }
 
-                            uart.sendStatus("ALERT", type, (int)g_gasValue);
+                            if (g_alertState == STATE_SAFE) 
+                            {
+                                uart.sendStatus("SAFE", "", (int)g_gasValue);
+                            } 
+                            else 
+                            {
+                                uart.sendStatus("ALERT", type, (int)g_gasValue);
+                            }
                         }
                     }
 
@@ -1152,17 +1140,6 @@ void Task_UART_CAM(void* pv)
                 
                 Serial.printf("[UART_TX] Sending ALERT command (%s) to Slave Node...\n", type);
                 uart.sendStatus("ALERT", type, (int)g_gasValue);
-                
-                // Only request image capture if the user has configured Telegram
-                if (g_botToken.length() > 0) 
-                {
-                    Serial.println("[UART_TX] Sending SNAPSHOT command to Slave Node...");
-                    uart.sendSnapshotRequest();   
-                } 
-                else 
-                {
-                    Serial.println("[UART_TX] Skipping SNAPSHOT due to missing Telegram configuration.");
-                }
             }
  
             lastSentAlert = cur;
