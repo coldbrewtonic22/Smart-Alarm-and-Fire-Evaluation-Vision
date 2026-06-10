@@ -216,8 +216,7 @@ void setup()
     Serial.println("[INFO] Waiting for WiFi configuration from Master Node...");
 }
 
-// Static buffer for UART messages received from the Master
-String rxBuf = "";
+
 
 void loop() 
 {
