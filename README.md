@@ -1,6 +1,8 @@
 # 🚨 Smart Alert and Fire Evaluation Vision
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)![Platform](https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--CAM-lightgrey.svg)![Framework](https://img.shields.io/badge/framework-Arduino%20%7C%20FreeRTOS-orange.svg)![Cloud](https://img.shields.io/badge/cloud-AWS%20S3%20%7C%20Blynk%20%7C%20Telegram-yellow.svg)Hệ thống giám sát và cảnh báo an toàn thông minh ứng dụng công nghệ Internet of Things (IoT) và Xử lý tại biên (Edge Computing). Dự án được thiết kế theo kiến trúc phân tán (Distributed Architecture) nhằm tối ưu hóa hiệu năng xử lý đa nhiệm theo thời gian thực, đảm bảo an toàn tuyệt đối cho người dùng trước các rủi ro hỏa hoạn và rò rỉ khí gas.
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)![Platform](https://img.shields.io/badge/platform-ESP32%20%7C%20ESP32--CAM-lightgrey.svg)![Framework](https://img.shields.io/badge/framework-Arduino%20%7C%20FreeRTOS-orange.svg)![Cloud](https://img.shields.io/badge/cloud-AWS%20S3%20%7C%20Blynk%20%7C%20Telegram-yellow.svg)
+
+Hệ thống giám sát và cảnh báo an toàn thông minh ứng dụng công nghệ Internet of Things (IoT) và Xử lý tại biên (Edge Computing). Dự án được thiết kế theo kiến trúc phân tán (Distributed Architecture) nhằm tối ưu hóa hiệu năng xử lý đa nhiệm theo thời gian thực, đảm bảo an toàn tuyệt đối cho người dùng trước các rủi ro hỏa hoạn và rò rỉ khí gas.
 
 **🎓 Project by:** D23 - IoT - Group 15
 
